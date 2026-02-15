@@ -5,6 +5,8 @@
 - Runs in background.
 - Press `Alt + Space` once to start recording.
 - Press `Alt + Space` again to stop recording and trigger voice-to-text + rewrite.
+- While recording, a bottom mini voice bar is shown (wave animation only).
+- While recording, system playback is paused temporarily and resumed after stop.
 - Inserts final text into current cursor (or replaces selected text).
 - Tray menu includes `Settings`, where you can update API Key and default mode at any time.
 

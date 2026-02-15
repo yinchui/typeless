@@ -11,7 +11,7 @@ from voice_text_organizer.audio import AudioRecorder
 from voice_text_organizer.config import Settings
 from voice_text_organizer.providers.ollama import rewrite_with_ollama
 from voice_text_organizer.providers.siliconflow import rewrite_with_siliconflow
-from voice_text_organizer.rewrite import build_prompt
+from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
 from voice_text_organizer.router import route_rewrite
 from voice_text_organizer.schemas import (
     StartSessionRequest,
@@ -196,6 +196,7 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
         default_mode=payload.mode or settings.default_mode,
         fallback=settings.fallback_to_local_on_cloud_error,
     )
+    final_text = postprocess_rewrite_output(final_text)
     return StopSessionResponse(final_text=final_text)
 
 
@@ -226,6 +227,7 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
             default_mode=payload.mode or settings.default_mode,
             fallback=settings.fallback_to_local_on_cloud_error,
         )
+        final_text = postprocess_rewrite_output(final_text)
         return StopRecordResponse(voice_text=voice_text, final_text=final_text)
     finally:
         _safe_unlink(audio_path)

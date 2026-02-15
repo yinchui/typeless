@@ -9,6 +9,11 @@ global recordingStarted := false
 global currentSessionId := ""
 global targetWindowId := 0
 global toggleBusy := false
+global pausePlaybackDuringRecording := true
+global playbackPauseToggledForRecording := false
+global waveformGui := 0
+global waveformBars := []
+global waveformTimerMs := 70
 global runtimeDir := A_ScriptDir . "\..\service\runtime"
 global logFile := runtimeDir . "\hotkey.log"
 
@@ -20,6 +25,7 @@ global settingsModeDDL := 0
 InstallKeybdHook()
 TraySetIcon("shell32.dll", 44)
 EnsureRuntimeDir()
+InitWaveformGui()
 InitTrayMenu()
 SyncModeFromServer()
 TrayTip("Voice Text Organizer", "Hotkey agent started. Press Alt+Space to start/stop recording.", 2)
@@ -67,6 +73,7 @@ StartRecordingSession()
     global recordingStarted, currentSessionId, targetWindowId
     try
     {
+        PausePlaybackForRecording()
         targetWindowId := WinExist("A")
         selectedText := GetSelectedTextSafe()
         sessionId := ApiStartRecord(selectedText)
@@ -79,11 +86,14 @@ StartRecordingSession()
 
         currentSessionId := sessionId
         recordingStarted := true
+        ShowWaveformIndicator()
         TrayTip("Voice Text Organizer", "Recording started. Press Alt+Space again to stop.", 1)
         LogLine("start ok, session=" . sessionId . ", targetWindowId=" . targetWindowId)
     }
     catch Error as err
     {
+        ResumePlaybackAfterRecording()
+        HideWaveformIndicator()
         TrayTip("Voice Text Organizer", "Start failed: " err.Message, 3)
         LogLine("start failed: " . err.Message)
     }
@@ -119,9 +129,118 @@ StopRecordingSession()
     }
     finally
     {
+        ResumePlaybackAfterRecording()
+        HideWaveformIndicator()
         recordingStarted := false
         currentSessionId := ""
         targetWindowId := 0
+    }
+}
+
+PausePlaybackForRecording()
+{
+    global pausePlaybackDuringRecording, playbackPauseToggledForRecording
+    if (!pausePlaybackDuringRecording || playbackPauseToggledForRecording)
+        return
+
+    try
+    {
+        ; Global media key pause, works for most media players (e.g. NetEase Cloud Music).
+        Send("{Media_Play_Pause}")
+        playbackPauseToggledForRecording := true
+        LogLine("playback paused for recording (media key)")
+    }
+    catch Error as err
+    {
+        LogLine("failed to pause playback: " . err.Message)
+    }
+}
+
+ResumePlaybackAfterRecording()
+{
+    global pausePlaybackDuringRecording, playbackPauseToggledForRecording
+    if (!pausePlaybackDuringRecording || !playbackPauseToggledForRecording)
+        return
+
+    try
+    {
+        Send("{Media_Play_Pause}")
+        LogLine("playback resumed after recording (media key)")
+    }
+    catch Error as err
+    {
+        LogLine("failed to resume playback: " . err.Message)
+    }
+    finally
+    {
+        playbackPauseToggledForRecording := false
+    }
+}
+
+InitWaveformGui()
+{
+    global waveformGui, waveformBars
+    if (IsObject(waveformGui))
+        return
+
+    waveformGui := Gui("-Caption +ToolWindow +AlwaysOnTop +E0x20")
+    waveformGui.MarginX := 10
+    waveformGui.MarginY := 10
+    waveformGui.BackColor := "1D1D1D"
+
+    waveformBars := []
+    Loop 16
+    {
+        opts := (A_Index = 1 ? "x0 y0 " : "x+4 yp ")
+        opts .= "w6 h30 +Vertical Background303030 c00D7FF Range0-100"
+        bar := waveformGui.AddProgress(opts, 10)
+        waveformBars.Push(bar)
+    }
+
+    waveformGui.Show("AutoSize Hide")
+}
+
+ShowWaveformIndicator()
+{
+    global waveformGui, waveformTimerMs
+    InitWaveformGui()
+
+    width := 0
+    height := 0
+    waveformGui.GetPos(, , &width, &height)
+    x := Floor((A_ScreenWidth - width) / 2)
+    y := A_ScreenHeight - height - 52
+
+    waveformGui.Show("NA x" . x . " y" . y)
+    SetTimer(UpdateWaveformIndicator, waveformTimerMs)
+}
+
+HideWaveformIndicator()
+{
+    global waveformGui
+    SetTimer(UpdateWaveformIndicator, 0)
+    if (IsObject(waveformGui))
+        waveformGui.Hide()
+}
+
+UpdateWaveformIndicator()
+{
+    global waveformBars
+    if (!IsObject(waveformBars) || waveformBars.Length = 0)
+        return
+
+    center := (waveformBars.Length + 1) / 2
+    Loop waveformBars.Length
+    {
+        distance := Abs(A_Index - center)
+        base := Round(78 - distance * 8)
+        jitter := Random(-28, 22)
+        value := base + jitter
+        if (value < 8)
+            value := 8
+        if (value > 100)
+            value := 100
+        waveformBars[A_Index].Value := value
     }
 }
 
@@ -143,6 +262,8 @@ OpenLogsFolder(*)
 
 ExitAgent(*)
 {
+    ResumePlaybackAfterRecording()
+    HideWaveformIndicator()
     ExitApp()
 }
 

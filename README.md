@@ -1,84 +1,85 @@
-# Voice Text Organizer (Windows MVP)
+# 语音文字整理器 (Windows MVP)
 
-Background desktop tool for converting spoken language into clean, structured text.
+后台桌面工具，将口语转换为清晰、结构化的文本。
 
-## Core flow
+## 核心流程
 
-1. Press `Alt + Space` once to start recording.
-2. Press `Alt + Space` again to stop.
-3. Service transcribes + rewrites automatically.
-4. Hotkey agent inserts final text at cursor (or replaces selected text).
+1. 按一次 `Alt + Space` 开始录音。
+2. 再次按 `Alt + Space` 停止。
+3. 录音时会出现底部迷你语音条（仅波浪动画，无文字）。
+4. 服务自动转录并重写。
+5. 热键代理在光标处插入最终文本（或替换选中文本）。
 
-## Stack
+## 技术栈
 
 - AutoHotkey v2 (`desktop/hotkey_agent.ahk`)
-- FastAPI service (`service/src/voice_text_organizer`)
-- Default cloud provider: SiliconFlow
-- Optional local rewrite provider: Ollama
+- FastAPI 服务 (`service/src/voice_text_organizer`)
+- 默认云服务提供商：SiliconFlow
+- 可选本地重写服务提供商：Ollama
 
-## Setup
+## 安装步骤
 
-1. Install Python dependencies:
+1. 安装 Python 依赖：
 
 ```powershell
 python -m pip install fastapi uvicorn pydantic "httpx>=0.27,<0.28" pytest sounddevice
 ```
 
-2. Configure env vars (PowerShell example):
+2. 配置环境变量（PowerShell 示例）：
 
 ```powershell
 $env:SILICONFLOW_API_KEY="your_new_key_here"
 $env:VTO_DEFAULT_MODE="cloud"
 ```
 
-3. Start service:
+3. 启动服务：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-dev.ps1
 ```
 
-4. Start hotkey agent:
+4. 启动热键代理：
 
 ```powershell
 AutoHotkey64.exe .\desktop\hotkey_agent.ahk
 ```
 
-5. Open tray menu `Settings` to update API Key anytime (effective immediately).
+5. 打开托盘菜单 `Settings` 随时更新 API Key（立即生效）。
 
-## Troubleshooting (No text inserted)
+## 故障排除（无文本插入）
 
-1. Launch with `start-app.cmd` (recommended).
-2. Check backend startup/runtime logs:
+1. 使用 `start-app.cmd` 启动（推荐）。
+2. 检查后端启动/运行日志：
    - `service/runtime/backend.log`
    - `service/runtime/backend.stderr.log`
-3. Check hotkey log: `service/runtime/hotkey.log` (Tray -> `Open Logs Folder`)
-4. Verify `sounddevice` is installed in the same Python used by backend:
+3. 检查热键日志：`service/runtime/hotkey.log`（托盘 → `Open Logs Folder`）
+4. 验证 `sounddevice` 已安装在与后端相同的 Python 环境中：
 
 ```powershell
 python -m pip show sounddevice
 ```
 
-5. If needed, force backend Python explicitly:
+5. 如需要，可显式指定后端 Python：
 
 ```powershell
 $env:VTO_PYTHON_EXE="C:\Users\YourName\AppData\Local\Programs\Python\Python310\python.exe"
 ```
 
-## One-Click Start
+## 一键启动
 
-Double-click `start-app.cmd` in project root to launch both:
-- FastAPI service
-- AutoHotkey hotkey agent
+双击项目根目录下的 `start-app.cmd` 启动以下两项：
+- FastAPI 服务
+- AutoHotkey 热键代理
 
-`start-app.cmd` starts backend service in hidden mode, so you do not need to keep a black console window open.
+`start-app.cmd` 以后台模式启动后端服务，因此无需保持黑色控制台窗口打开。
 
-Optional check mode:
+可选检查模式：
 
 ```powershell
 .\start-app.cmd --check
 ```
 
-## Security note
+## 安全注意事项
 
-- Never commit API keys.
-- If a key is exposed, revoke and rotate it immediately.
+- 切勿提交 API 密钥。
+- 如果密钥泄露，请立即撤销并更换。
