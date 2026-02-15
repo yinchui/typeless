@@ -26,9 +26,36 @@ TOPIC_COMMA_SPLIT_RE = re.compile(
     r"))",
     re.IGNORECASE,
 )
+EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "\u2600-\u26FF"
+    "\u2700-\u27BF"
+    "]",
+    re.UNICODE,
+)
+
+
+def strip_emoji(text: str) -> str:
+    text = EMOJI_RE.sub("", text)
+    text = text.replace("\uFE0F", "")
+    text = text.replace("\u200D", "")
+    return text
 
 
 def _normalize_whitespace(text: str) -> str:
+    text = strip_emoji(text)
+    text = text.replace("\\r\\n", "\n")
+    text = text.replace("\\n", "\n")
+    text = text.replace("\\r", "\n")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -129,6 +156,7 @@ def build_prompt(voice_text: str, selected_text: str | None = None) -> str:
         "- Remove filler words and repeated fragments.\n"
         "- Use paragraph breaks when topics change.\n"
         "- Use bullet points when a paragraph contains multiple steps, conditions, or items.\n"
+        "- Use real line breaks, never output literal \\n tokens.\n"
         "- Title is optional and usually not needed.\n"
         "- Keep the same language as the input.\n"
         "- Do not add facts."

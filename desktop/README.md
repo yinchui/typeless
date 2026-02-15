@@ -3,12 +3,13 @@
 ## What it does
 
 - Runs in background.
+- Provides a desktop dashboard UI (Home + Dictionary) based on the new design.
 - Press `Alt + Space` once to start recording.
 - Press `Alt + Space` again to stop recording and trigger voice-to-text + rewrite.
 - While recording, a bottom mini voice bar is shown (wave animation only).
 - While recording, system playback is paused temporarily and resumed after stop.
 - Inserts final text into current cursor (or replaces selected text).
-- Tray menu includes `Settings`, where you can update API Key and default mode at any time.
+- Tray menu includes `Open Dashboard`, `Settings`, and `Open Logs Folder`.
 
 ## Requirements
 
@@ -24,6 +25,7 @@ AutoHotkey64.exe .\desktop\hotkey_agent.ahk
 ## Config
 
 Runtime settings:
+- Click tray icon once (or right click) -> `Open Dashboard` to open the main UI.
 - Right click tray icon -> `Settings`
 - Save API Key and default mode (`cloud` / `local`) instantly
 - Right click tray icon -> `Open Logs Folder` to inspect runtime logs

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import wave
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -9,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from voice_text_organizer.asr import normalize_asr_text, transcribe_with_siliconflow
 from voice_text_organizer.audio import AudioRecorder
 from voice_text_organizer.config import Settings
+from voice_text_organizer.history_store import HistoryStore
 from voice_text_organizer.providers.ollama import rewrite_with_ollama
 from voice_text_organizer.providers.siliconflow import rewrite_with_siliconflow
 from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
@@ -18,6 +20,10 @@ from voice_text_organizer.schemas import (
     StartSessionResponse,
     SettingsUpdateRequest,
     SettingsViewResponse,
+    DashboardSummaryResponse,
+    DashboardTermsExportResponse,
+    DashboardTermAddRequest,
+    DashboardTermAddResponse,
     StopRecordRequest,
     StopRecordResponse,
     StopSessionRequest,
@@ -105,6 +111,7 @@ def _load_settings() -> Settings:
 settings = _load_settings()
 store = SessionStore()
 recorder = AudioRecorder()
+history_store = HistoryStore(Path(__file__).resolve().parents[2] / "runtime" / "history.db")
 
 
 def cloud_provider(prompt: str) -> str:
@@ -128,6 +135,18 @@ def _safe_unlink(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _wav_duration_seconds(path: Path) -> int:
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            framerate = wav_file.getframerate()
+            frames = wav_file.getnframes()
+            if framerate <= 0:
+                return 0
+            return max(0, round(frames / float(framerate)))
+    except Exception:
+        return 0
 
 
 app = FastAPI()
@@ -159,6 +178,38 @@ def update_settings(payload: SettingsUpdateRequest) -> SettingsViewResponse:
             detail=f"failed to persist settings: {exc}",
         ) from exc
     return _build_settings_view()
+
+
+@app.get("/v1/dashboard/summary", response_model=DashboardSummaryResponse)
+def dashboard_summary() -> DashboardSummaryResponse:
+    summary = history_store.get_summary()
+    return DashboardSummaryResponse(**summary)
+
+
+@app.get("/v1/dashboard/terms/export", response_model=DashboardTermsExportResponse)
+def dashboard_terms_export(
+    query: str = "",
+    filter_mode: str = "all",
+    min_auto_count: int = 2,
+    limit: int = 300,
+) -> DashboardTermsExportResponse:
+    return DashboardTermsExportResponse(
+        terms_blob=history_store.export_terms_blob(
+            query=query,
+            filter_mode=filter_mode,
+            min_auto_count=min_auto_count,
+            limit=limit,
+        )
+    )
+
+
+@app.post("/v1/dashboard/terms/manual", response_model=DashboardTermAddResponse)
+def dashboard_add_manual_term(payload: DashboardTermAddRequest) -> DashboardTermAddResponse:
+    term = payload.term.strip()
+    if not term:
+        raise HTTPException(status_code=422, detail="term is empty")
+    history_store.add_manual_term(term)
+    return DashboardTermAddResponse(ok=True)
 
 
 @app.post("/v1/session/start", response_model=StartSessionResponse)
@@ -209,6 +260,11 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
 
     try:
         audio_path = recorder.stop(payload.session_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="recording session not found or already stopped",
+        ) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"failed to stop recording: {exc}") from exc
 
@@ -228,6 +284,12 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
             fallback=settings.fallback_to_local_on_cloud_error,
         )
         final_text = postprocess_rewrite_output(final_text)
+        history_store.record_transcript(
+            mode=payload.mode or settings.default_mode,
+            voice_text=voice_text,
+            final_text=final_text,
+            duration_seconds=_wav_duration_seconds(audio_path),
+        )
         return StopRecordResponse(voice_text=voice_text, final_text=final_text)
     finally:
         _safe_unlink(audio_path)

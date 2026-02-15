@@ -45,3 +45,21 @@ def test_postprocess_adds_structure_for_single_long_line() -> None:
 
     assert "\n" in cleaned
     assert ("- " in cleaned) or ("\n\n" in cleaned)
+
+
+def test_postprocess_decodes_literal_newline_tokens() -> None:
+    raw = "- 第一项\\n- 第二项\\n- 第三项"
+
+    cleaned = postprocess_rewrite_output(raw)
+
+    assert "\\n" not in cleaned
+    assert "\n" in cleaned
+
+
+def test_postprocess_removes_emoji_characters() -> None:
+    raw = "Please finish this today ✅ and sync it tomorrow 🚀."
+
+    cleaned = postprocess_rewrite_output(raw)
+
+    assert "✅" not in cleaned
+    assert "🚀" not in cleaned

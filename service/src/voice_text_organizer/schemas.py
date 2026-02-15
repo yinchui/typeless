@@ -34,6 +34,27 @@ class StopRecordResponse(BaseModel):
     final_text: str
 
 
+class DashboardSummaryResponse(BaseModel):
+    transcript_count: int
+    total_duration_seconds: int
+    total_chars: int
+    average_chars_per_minute: int
+    saved_seconds: int
+    profile_score: int
+
+
+class DashboardTermsExportResponse(BaseModel):
+    terms_blob: str
+
+
+class DashboardTermAddRequest(BaseModel):
+    term: str
+
+
+class DashboardTermAddResponse(BaseModel):
+    ok: bool = True
+
+
 class SettingsViewResponse(BaseModel):
     default_mode: Literal["cloud", "local"]
     api_key_configured: bool
