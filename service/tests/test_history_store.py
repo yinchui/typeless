@@ -38,3 +38,15 @@ def test_history_store_manual_term_is_always_visible(tmp_path: Path) -> None:
     blob = store.export_terms_blob(min_auto_count=5)
 
     assert "Typeless\tmanual\t1" in blob
+
+
+def test_history_store_delete_term(tmp_path: Path) -> None:
+    db_path = tmp_path / "history.db"
+    store = HistoryStore(db_path)
+
+    store.add_manual_term("DeleteMe")
+    assert "DeleteMe" in store.export_terms_blob(min_auto_count=5)
+
+    deleted = store.delete_term("DeleteMe")
+    assert deleted is True
+    assert "DeleteMe" not in store.export_terms_blob(min_auto_count=1)

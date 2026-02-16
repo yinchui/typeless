@@ -205,6 +205,18 @@ class HistoryStore:
             self._upsert_term(conn, term=cleaned, source="manual", increment=1)
             conn.commit()
 
+    def delete_term(self, term: str) -> bool:
+        cleaned = term.strip()
+        if not cleaned:
+            return False
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM term_stats WHERE term = ?",
+                (cleaned,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     def get_summary(self) -> dict[str, int]:
         with self._lock, self._connect() as conn:
             row = conn.execute(
@@ -249,7 +261,7 @@ class HistoryStore:
             "profile_score": profile_score,
         }
 
-    def export_terms_blob(self, *, query: str = "", filter_mode: str = "all", min_auto_count: int = 2, limit: int = 300) -> str:
+    def export_terms_blob(self, *, query: str = "", filter_mode: str = "all", min_auto_count: int = 3, limit: int = 300) -> str:
         like_query = f"%{query.lower()}%" if query else "%"
         normalized_filter = filter_mode if filter_mode in {"all", "auto", "manual"} else "all"
 

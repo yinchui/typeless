@@ -4,7 +4,9 @@
       "Bash(dir:*)",
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\n添加设计文档：修复文字覆盖 + 上下文续写 + 提速提质\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python:*)"
     ]
   }
 }

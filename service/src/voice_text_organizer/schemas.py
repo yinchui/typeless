@@ -56,6 +56,15 @@ class DashboardTermAddResponse(BaseModel):
     ok: bool = True
 
 
+class DashboardTermDeleteRequest(BaseModel):
+    term: str
+
+
+class DashboardTermDeleteResponse(BaseModel):
+    ok: bool = True
+    deleted: bool = False
+
+
 class SettingsViewResponse(BaseModel):
     default_mode: Literal["cloud", "local"]
     api_key_configured: bool

@@ -34,3 +34,21 @@ def test_dashboard_terms_export_endpoint(client, monkeypatch) -> None:
 def test_dashboard_manual_term_rejects_empty(client) -> None:
     res = client.post("/v1/dashboard/terms/manual", json={"term": "   "})
     assert res.status_code == 422
+
+
+def test_dashboard_delete_term_endpoint(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "voice_text_organizer.main.history_store.delete_term",
+        lambda term: term == "Kubernetes",
+        raising=False,
+    )
+
+    res = client.post("/v1/dashboard/terms/delete", json={"term": "Kubernetes"})
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    assert res.json()["deleted"] is True
+
+
+def test_dashboard_delete_term_rejects_empty(client) -> None:
+    res = client.post("/v1/dashboard/terms/delete", json={"term": "   "})
+    assert res.status_code == 422

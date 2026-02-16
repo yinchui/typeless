@@ -24,6 +24,8 @@ from voice_text_organizer.schemas import (
     DashboardTermsExportResponse,
     DashboardTermAddRequest,
     DashboardTermAddResponse,
+    DashboardTermDeleteRequest,
+    DashboardTermDeleteResponse,
     StopRecordRequest,
     StopRecordResponse,
     StopSessionRequest,
@@ -190,7 +192,7 @@ def dashboard_summary() -> DashboardSummaryResponse:
 def dashboard_terms_export(
     query: str = "",
     filter_mode: str = "all",
-    min_auto_count: int = 2,
+    min_auto_count: int = 3,
     limit: int = 300,
 ) -> DashboardTermsExportResponse:
     return DashboardTermsExportResponse(
@@ -210,6 +212,15 @@ def dashboard_add_manual_term(payload: DashboardTermAddRequest) -> DashboardTerm
         raise HTTPException(status_code=422, detail="term is empty")
     history_store.add_manual_term(term)
     return DashboardTermAddResponse(ok=True)
+
+
+@app.post("/v1/dashboard/terms/delete", response_model=DashboardTermDeleteResponse)
+def dashboard_delete_term(payload: DashboardTermDeleteRequest) -> DashboardTermDeleteResponse:
+    term = payload.term.strip()
+    if not term:
+        raise HTTPException(status_code=422, detail="term is empty")
+    deleted = history_store.delete_term(term)
+    return DashboardTermDeleteResponse(ok=True, deleted=deleted)
 
 
 @app.post("/v1/session/start", response_model=StartSessionResponse)

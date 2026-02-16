@@ -39,6 +39,7 @@ global dashboardMetricSaved := 0
 global dashboardMetricSpeed := 0
 global dashboardDictSearch := 0
 global dashboardDictList := 0
+global dashboardDictDeleteBtn := 0
 global dashboardFilterAll := 0
 global dashboardFilterAuto := 0
 global dashboardFilterManual := 0
@@ -533,6 +534,11 @@ EnsureDashboardGui()
     dictNewWordBtn.OnEvent("Click", OnDashboardNewWordClick)
     AddDashboardControl("dict", dictNewWordBtn)
 
+    dashboardDictDeleteBtn := dashboardGui.AddText("x1148 y66 w96 h34 +0x100 +0x200 +Center BackgroundFFFFFF c1B1D22", "删除选中")
+    dashboardDictDeleteBtn.SetFont("s10 w700")
+    dashboardDictDeleteBtn.OnEvent("Click", OnDashboardDeleteSelectedClick)
+    AddDashboardControl("dict", dashboardDictDeleteBtn)
+
     dashboardFilterAll := dashboardGui.AddText("x306 y124 w66 h34 +0x100 +0x200 +Center BackgroundFFFFFF c171717", "所有")
     dashboardFilterAll.SetFont("s11 w500")
     dashboardFilterAll.OnEvent("Click", OnDashboardFilterAllClick)
@@ -556,7 +562,7 @@ EnsureDashboardGui()
     dictListBg := dashboardGui.AddText("x306 y220 w1056 h628 BackgroundFFFFFF")
     AddDashboardControl("dict", dictListBg)
 
-    dashboardDictList := dashboardGui.AddListView("x318 y232 w1032 h604 -Multi", ["词", "来源", "次数"])
+    dashboardDictList := dashboardGui.AddListView("x318 y232 w1032 h604", ["词", "来源", "次数"])
     dashboardDictList.SetFont("s11", "Microsoft YaHei UI")
     dashboardDictList.ModifyCol(1, 640)
     dashboardDictList.ModifyCol(2, 220)
@@ -769,6 +775,50 @@ OnDashboardNewWordClick(*)
     catch Error as err
     {
         MsgBox("添加失败: " . err.Message, "Voice Text Organizer", "Iconx")
+        return
+    }
+
+    LoadDashboardDataFromServer()
+    RefreshDashboardDictionaryList()
+}
+
+OnDashboardDeleteSelectedClick(*)
+{
+    global dashboardDictList
+    if (!IsObject(dashboardDictList))
+        return
+
+    selectedTerms := []
+    row := 0
+    while (row := dashboardDictList.GetNext(row))
+    {
+        word := Trim(dashboardDictList.GetText(row, 1))
+        if (word != "")
+            selectedTerms.Push(word)
+    }
+
+    if (selectedTerms.Length = 0)
+    {
+        MsgBox("请先在词典里选择要删除的词。", "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    confirm := MsgBox(
+        "确认删除选中的 " . selectedTerms.Length . " 个词吗？`n删除后不会在词典中显示。",
+        "Voice Text Organizer",
+        "OKCancel Icon!"
+    )
+    if (confirm != "OK")
+        return
+
+    try
+    {
+        for _, term in selectedTerms
+            ApiDeleteDashboardTerm(term)
+    }
+    catch Error as err
+    {
+        MsgBox("删除失败: " . err.Message, "Voice Text Organizer", "Iconx")
         return
     }
 
@@ -1040,7 +1090,7 @@ ApiGetDashboardSummary()
 
 ApiGetDashboardTermsBlob()
 {
-    response := HttpGet("/v1/dashboard/terms/export?filter_mode=all&min_auto_count=2&limit=600")
+    response := HttpGet("/v1/dashboard/terms/export?filter_mode=all&min_auto_count=3&limit=600")
     return ExtractJsonString(response, "terms_blob")
 }
 
@@ -1050,6 +1100,14 @@ ApiAddDashboardManualTerm(term)
     payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q . "}"
     response := HttpPost("/v1/dashboard/terms/manual", payload)
     return ExtractJsonBool(response, "ok")
+}
+
+ApiDeleteDashboardTerm(term)
+{
+    q := Chr(34)
+    payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q . "}"
+    response := HttpPost("/v1/dashboard/terms/delete", payload)
+    return ExtractJsonBool(response, "deleted")
 }
 
 ParseDashboardTermsBlob(blob)
@@ -1218,11 +1276,13 @@ ExtractJsonString(json, key)
         return ""
 
     val := m[1]
-    val := StrReplace(val, "\\n", "`n")
-    val := StrReplace(val, "\\r", "`r")
-    val := StrReplace(val, "\\t", "`t")
-    val := StrReplace(val, "\\" . Chr(34), Chr(34))
-    val := StrReplace(val, "\\\\", Chr(92))
+    ; JSON unescape: handle \\ first via placeholder to avoid double-processing
+    val := StrReplace(val, "\\", Chr(1))
+    val := StrReplace(val, "\n", "`n")
+    val := StrReplace(val, "\r", "`r")
+    val := StrReplace(val, "\t", "`t")
+    val := StrReplace(val, "\" . Chr(34), Chr(34))
+    val := StrReplace(val, Chr(1), "\")
     return val
 }
 
