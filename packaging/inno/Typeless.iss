@@ -36,6 +36,7 @@ Name: "autostart"; Description: "开机启动 Typeless"; Flags: unchecked
 Source: "{#RepoRoot}\dist\backend\TypelessService.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\dist\backend\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "TypelessService.exe"
 Source: "{#RepoRoot}\dist\agent\TypelessAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\dist\agent\TypelessAgent.ahk"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
