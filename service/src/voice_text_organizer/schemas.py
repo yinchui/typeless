@@ -67,10 +67,20 @@ class DashboardTermDeleteResponse(BaseModel):
 
 class SettingsViewResponse(BaseModel):
     default_mode: Literal["cloud", "local"]
+    update_channel: Literal["stable", "beta"] = "stable"
     api_key_configured: bool
     api_key_masked: str | None = None
 
 
 class SettingsUpdateRequest(BaseModel):
     default_mode: Literal["cloud", "local"] | None = None
+    update_channel: Literal["stable", "beta"] | None = None
     api_key: str | None = None
+
+
+class AppVersionResponse(BaseModel):
+    current_version: str
+    latest_version: str
+    has_update: bool
+    release_url: str
+    checked_at: str

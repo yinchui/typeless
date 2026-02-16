@@ -3,6 +3,14 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $serviceDir = Join-Path $repoRoot "service"
 
+if (-not $env:VTO_RUNTIME_DIR) {
+    if ($env:LOCALAPPDATA) {
+        $env:VTO_RUNTIME_DIR = Join-Path $env:LOCALAPPDATA "Typeless\runtime"
+    } else {
+        $env:VTO_RUNTIME_DIR = Join-Path $repoRoot "service\runtime"
+    }
+}
+
 function Resolve-PythonCommand {
     param(
         [Parameter(Mandatory = $true)]

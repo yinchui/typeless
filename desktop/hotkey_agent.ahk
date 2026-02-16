@@ -18,7 +18,15 @@ global playbackPauseToggledForRecording := false
 global waveformGui := 0
 global waveformBars := []
 global waveformTimerMs := 70
-global runtimeDir := A_ScriptDir . "\..\service\runtime"
+global runtimeDir := EnvGet("VTO_RUNTIME_DIR")
+if (runtimeDir = "")
+{
+    localAppData := EnvGet("LOCALAPPDATA")
+    if (localAppData != "")
+        runtimeDir := localAppData . "\Typeless\runtime"
+    else
+        runtimeDir := A_ScriptDir . "\..\service\runtime"
+}
 global logFile := runtimeDir . "\hotkey.log"
 
 global settingsGui := 0
@@ -51,6 +59,12 @@ global dashboardTotalChars := 0
 global dashboardAvgCharsPerMinute := 0
 global dashboardSavedSeconds := 0
 global dashboardProfileScore := 0
+global dashboardUpdateLink := 0
+global appReleaseUrl := "https://github.com/yinchui/typeless/releases"
+global latestReleaseVersion := ""
+global latestUpdateCheckAt := ""
+global hasAppUpdate := false
+global updateTipShownVersion := ""
 
 InstallKeybdHook()
 TraySetIcon("shell32.dll", 44)
@@ -58,6 +72,7 @@ EnsureRuntimeDir()
 InitWaveformGui()
 InitTrayMenu()
 SyncModeFromServer()
+CheckForAppUpdate()
 TrayTip("Voice Text Organizer", "Hotkey agent started. Press Alt+Space to start/stop recording.", 2)
 LogLine("agent started")
 
@@ -323,6 +338,56 @@ SyncModeFromServer()
     }
 }
 
+CheckForAppUpdate()
+{
+    global latestReleaseVersion, latestUpdateCheckAt, appReleaseUrl, hasAppUpdate, updateTipShownVersion
+    try
+    {
+        info := ApiGetAppVersion()
+        latestReleaseVersion := info["latest_version"]
+        latestUpdateCheckAt := info["checked_at"]
+        appReleaseUrl := info["release_url"]
+        hasAppUpdate := info["has_update"]
+
+        if (hasAppUpdate && latestReleaseVersion != "" && updateTipShownVersion != latestReleaseVersion)
+        {
+            updateTipShownVersion := latestReleaseVersion
+            TrayTip("Voice Text Organizer", "发现新版本 v" . latestReleaseVersion . "，可在面板中点击更新入口。", 3)
+            LogLine("update available: " . latestReleaseVersion . ", url=" . appReleaseUrl)
+        }
+    }
+    catch Error as err
+    {
+        LogLine("update check failed: " . err.Message)
+    }
+}
+
+RefreshDashboardUpdateLink()
+{
+    global dashboardUpdateLink, hasAppUpdate, latestReleaseVersion
+    if (!IsObject(dashboardUpdateLink))
+        return
+
+    if (hasAppUpdate && latestReleaseVersion != "")
+    {
+        dashboardUpdateLink.Value := "发现新版本 v" . latestReleaseVersion
+        dashboardUpdateLink.Visible := true
+    }
+    else
+    {
+        dashboardUpdateLink.Value := ""
+        dashboardUpdateLink.Visible := false
+    }
+}
+
+OnDashboardUpdateLinkClick(*)
+{
+    global appReleaseUrl
+    if (appReleaseUrl = "")
+        appReleaseUrl := "https://github.com/yinchui/typeless/releases"
+    Run(appReleaseUrl)
+}
+
 OpenSettingsDialog(*)
 {
     global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL
@@ -412,9 +477,11 @@ HideSettingsDialog(*)
 OpenDashboard(*)
 {
     EnsureDashboardGui()
+    CheckForAppUpdate()
     LoadDashboardDataFromServer()
     RefreshDashboardHomeMetrics()
     RefreshDashboardDictionaryList()
+    RefreshDashboardUpdateLink()
     dashboardGui.Show("w1420 h900 Center")
 }
 
@@ -434,6 +501,7 @@ EnsureDashboardGui()
     global dashboardMetricSaved, dashboardMetricSpeed
     global dashboardDictSearch, dashboardDictList
     global dashboardFilterAll, dashboardFilterAuto, dashboardFilterManual
+    global dashboardUpdateLink
 
     if (IsObject(dashboardGui))
         return
@@ -476,6 +544,11 @@ EnsureDashboardGui()
     homeSubTitle := dashboardGui.AddText("x306 y106 w760 h24 c666666 +BackgroundTrans", "按 Alt + 空格 键，开始/结束录音并自动插入语音文本。")
     homeSubTitle.SetFont("s11")
     AddDashboardControl("home", homeSubTitle)
+
+    dashboardUpdateLink := dashboardGui.AddText("x1128 y106 w230 h24 c2C4EAA +BackgroundTrans +0x100 +Right", "")
+    dashboardUpdateLink.SetFont("s10 w600 underline")
+    dashboardUpdateLink.OnEvent("Click", OnDashboardUpdateLinkClick)
+    AddDashboardControl("home", dashboardUpdateLink)
 
     homeStatsWrap := dashboardGui.AddText("x302 y146 w1076 h258 BackgroundF0F0F1")
     AddDashboardControl("home", homeStatsWrap)
@@ -1056,6 +1129,18 @@ ApiGetSettings()
     return ParseSettingsResponse(response)
 }
 
+ApiGetAppVersion()
+{
+    response := HttpGet("/v1/app/version")
+    result := Map()
+    result["current_version"] := ExtractJsonString(response, "current_version")
+    result["latest_version"] := ExtractJsonString(response, "latest_version")
+    result["has_update"] := ExtractJsonBool(response, "has_update")
+    result["release_url"] := ExtractJsonString(response, "release_url")
+    result["checked_at"] := ExtractJsonString(response, "checked_at")
+    return result
+}
+
 ApiUpdateSettings(apiKey, mode)
 {
     q := Chr(34)
@@ -1198,10 +1283,19 @@ IsHttpTimeoutError(message)
 
 TryStartBackend()
 {
+    serviceExe := A_ScriptDir . "\TypelessService.exe"
+    if FileExist(serviceExe)
+    {
+        quotedExe := Chr(34) . serviceExe . Chr(34)
+        LogLine("starting backend exe via " . serviceExe)
+        Run(quotedExe, A_ScriptDir, "Hide")
+        return WaitBackendReady(15000)
+    }
+
     serviceScript := A_ScriptDir . "\..\scripts\run-service.ps1"
     if !FileExist(serviceScript)
     {
-        LogLine("backend start skipped: missing script " . serviceScript)
+        LogLine("backend start skipped: missing service exe and script (" . serviceScript . ")")
         return false
     }
 

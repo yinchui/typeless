@@ -6,9 +6,12 @@ venv/
 
 # Runtime / local state
 service/runtime/
+dist/
+service/.test_runtime/
 
 # IDE/OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+.claude/

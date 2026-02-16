@@ -16,6 +16,7 @@ def test_get_settings_returns_masked_key(client, monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["default_mode"] == "cloud"
+    assert payload["update_channel"] == "stable"
     assert payload["api_key_configured"] is True
     assert payload["api_key_masked"] == "****5678"
 
@@ -37,10 +38,12 @@ def test_put_settings_persists_and_applies_runtime(client, monkeypatch, tmp_path
     assert response.status_code == 200
     payload = response.json()
     assert payload["default_mode"] == "cloud"
+    assert payload["update_channel"] == "stable"
     assert payload["api_key_configured"] is True
     assert payload["api_key_masked"] == "****1234"
 
     assert settings_path.exists()
     saved = json.loads(settings_path.read_text(encoding="utf-8"))
     assert saved["default_mode"] == "cloud"
+    assert saved["update_channel"] == "stable"
     assert saved["siliconflow_api_key"] == "sk-new-abcdefg1234"

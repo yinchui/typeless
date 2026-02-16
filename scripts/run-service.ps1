@@ -2,7 +2,20 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $serviceDir = Join-Path $repoRoot "service"
-$runtimeDir = Join-Path $serviceDir "runtime"
+
+function Resolve-RuntimeDir {
+    if ($env:VTO_RUNTIME_DIR) {
+        return $env:VTO_RUNTIME_DIR
+    }
+
+    if ($env:LOCALAPPDATA) {
+        return (Join-Path $env:LOCALAPPDATA "Typeless\runtime")
+    }
+
+    return (Join-Path $repoRoot "service\runtime")
+}
+
+$runtimeDir = Resolve-RuntimeDir
 $logPath = Join-Path $runtimeDir "backend.log"
 $stdoutLogPath = Join-Path $runtimeDir "backend.stdout.log"
 $stderrLogPath = Join-Path $runtimeDir "backend.stderr.log"
@@ -55,6 +68,8 @@ function Resolve-PythonCommand {
 }
 
 try {
+    $env:VTO_RUNTIME_DIR = $runtimeDir
+
     $python = Resolve-PythonCommand -RepoRoot $repoRoot
     $pythonExe = [string]$python.exe
     $prefixArgs = @($python.prefixArgs)

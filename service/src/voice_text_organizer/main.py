@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import wave
+from typing import Any
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -14,8 +16,16 @@ from voice_text_organizer.history_store import HistoryStore
 from voice_text_organizer.providers.ollama import rewrite_with_ollama
 from voice_text_organizer.providers.siliconflow import rewrite_with_siliconflow
 from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
+from voice_text_organizer.runtime_paths import (
+    RUNTIME_BACKEND_LOG_PATH,
+    RUNTIME_BACKEND_STDERR_LOG_PATH,
+    RUNTIME_BACKEND_STDOUT_LOG_PATH,
+    RUNTIME_HISTORY_DB_PATH,
+    RUNTIME_SETTINGS_PATH,
+)
 from voice_text_organizer.router import route_rewrite
 from voice_text_organizer.schemas import (
+    AppVersionResponse,
     StartSessionRequest,
     StartSessionResponse,
     SettingsUpdateRequest,
@@ -32,11 +42,34 @@ from voice_text_organizer.schemas import (
     StopSessionResponse,
 )
 from voice_text_organizer.session_store import SessionStore
+from voice_text_organizer.version import CURRENT_VERSION
+from voice_text_organizer.version_check import resolve_version
 
-RUNTIME_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "runtime" / "settings.json"
+LEGACY_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
 
 
-def _load_runtime_settings(path: Path | None = None) -> dict[str, str | None]:
+def _migrate_legacy_runtime_files() -> None:
+    RUNTIME_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    candidates = [
+        (LEGACY_RUNTIME_DIR / "settings.json", RUNTIME_SETTINGS_PATH),
+        (LEGACY_RUNTIME_DIR / "history.db", RUNTIME_HISTORY_DB_PATH),
+        (LEGACY_RUNTIME_DIR / "backend.log", RUNTIME_BACKEND_LOG_PATH),
+        (LEGACY_RUNTIME_DIR / "backend.stdout.log", RUNTIME_BACKEND_STDOUT_LOG_PATH),
+        (LEGACY_RUNTIME_DIR / "backend.stderr.log", RUNTIME_BACKEND_STDERR_LOG_PATH),
+    ]
+    for legacy_path, target_path in candidates:
+        if target_path.exists() or not legacy_path.exists():
+            continue
+        try:
+            shutil.copy2(legacy_path, target_path)
+        except OSError:
+            continue
+
+
+_migrate_legacy_runtime_files()
+
+
+def _load_runtime_settings(path: Path | None = None) -> dict[str, Any]:
     settings_path = path or RUNTIME_SETTINGS_PATH
     if not settings_path.exists():
         return {}
@@ -49,9 +82,11 @@ def _load_runtime_settings(path: Path | None = None) -> dict[str, str | None]:
     if not isinstance(payload, dict):
         return {}
 
-    result: dict[str, str | None] = {}
+    result: dict[str, Any] = {}
     if payload.get("default_mode") in ("cloud", "local"):
         result["default_mode"] = payload["default_mode"]
+    if payload.get("update_channel") in ("stable", "beta"):
+        result["update_channel"] = payload["update_channel"]
     if "siliconflow_api_key" in payload:
         value = payload["siliconflow_api_key"]
         if value is None:
@@ -59,10 +94,16 @@ def _load_runtime_settings(path: Path | None = None) -> dict[str, str | None]:
         elif isinstance(value, str):
             cleaned = value.strip()
             result["siliconflow_api_key"] = cleaned or None
+    if isinstance(payload.get("last_update_check_at"), str):
+        result["last_update_check_at"] = payload["last_update_check_at"]
+    if isinstance(payload.get("last_release_version"), str):
+        result["last_release_version"] = payload["last_release_version"]
+    if isinstance(payload.get("last_release_url"), str):
+        result["last_release_url"] = payload["last_release_url"]
     return result
 
 
-def _save_runtime_settings(payload: dict[str, str | None], path: Path | None = None) -> None:
+def _save_runtime_settings(payload: dict[str, Any], path: Path | None = None) -> None:
     settings_path = path or RUNTIME_SETTINGS_PATH
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
@@ -81,30 +122,36 @@ def _mask_api_key(api_key: str | None) -> str | None:
 def _build_settings_view() -> SettingsViewResponse:
     return SettingsViewResponse(
         default_mode=settings.default_mode,
+        update_channel=settings.update_channel,
         api_key_configured=bool(settings.siliconflow_api_key),
         api_key_masked=_mask_api_key(settings.siliconflow_api_key),
     )
 
 
-def _persist_current_settings() -> None:
-    _save_runtime_settings(
-        {
-            "default_mode": settings.default_mode,
-            "siliconflow_api_key": settings.siliconflow_api_key,
-        }
-    )
+def _persist_current_settings(extra_runtime_fields: dict[str, Any] | None = None) -> None:
+    payload: dict[str, Any] = {
+        "default_mode": settings.default_mode,
+        "update_channel": settings.update_channel,
+        "siliconflow_api_key": settings.siliconflow_api_key,
+    }
+    if extra_runtime_fields:
+        payload.update(extra_runtime_fields)
+    _save_runtime_settings(payload)
 
 
 def _load_settings() -> Settings:
     default_mode = os.getenv("VTO_DEFAULT_MODE", "cloud")
+    update_channel = os.getenv("VTO_UPDATE_CHANNEL", "stable")
     try:
-        current = Settings(default_mode=default_mode)
+        current = Settings(default_mode=default_mode, update_channel=update_channel)
     except ValueError:
-        current = Settings(default_mode="local")
+        current = Settings(default_mode="local", update_channel="stable")
 
     runtime_overrides = _load_runtime_settings()
     if runtime_overrides.get("default_mode") in ("cloud", "local"):
         current.default_mode = runtime_overrides["default_mode"]  # type: ignore[assignment]
+    if runtime_overrides.get("update_channel") in ("stable", "beta"):
+        current.update_channel = runtime_overrides["update_channel"]  # type: ignore[assignment]
     if "siliconflow_api_key" in runtime_overrides:
         current.siliconflow_api_key = runtime_overrides["siliconflow_api_key"]
     return current
@@ -113,7 +160,7 @@ def _load_settings() -> Settings:
 settings = _load_settings()
 store = SessionStore()
 recorder = AudioRecorder()
-history_store = HistoryStore(Path(__file__).resolve().parents[2] / "runtime" / "history.db")
+history_store = HistoryStore(RUNTIME_HISTORY_DB_PATH)
 
 
 def cloud_provider(messages: list[dict[str, str]]) -> str:
@@ -168,18 +215,50 @@ def update_settings(payload: SettingsUpdateRequest) -> SettingsViewResponse:
     if payload.default_mode is not None:
         settings.default_mode = payload.default_mode
 
+    if payload.update_channel is not None:
+        settings.update_channel = payload.update_channel
+
     if payload.api_key is not None:
         cleaned = payload.api_key.strip()
         settings.siliconflow_api_key = cleaned or None
 
     try:
-        _persist_current_settings()
+        current_runtime = _load_runtime_settings()
+        cache_fields = {
+            "last_update_check_at": current_runtime.get("last_update_check_at"),
+            "last_release_version": current_runtime.get("last_release_version"),
+            "last_release_url": current_runtime.get("last_release_url"),
+        }
+        _persist_current_settings(extra_runtime_fields=cache_fields)
     except OSError as exc:
         raise HTTPException(
             status_code=500,
             detail=f"failed to persist settings: {exc}",
         ) from exc
     return _build_settings_view()
+
+
+@app.get("/v1/app/version", response_model=AppVersionResponse)
+def app_version() -> AppVersionResponse:
+    runtime_settings = _load_runtime_settings()
+    result = resolve_version(
+        current_version=CURRENT_VERSION,
+        runtime_settings=runtime_settings,
+    )
+
+    try:
+        _persist_current_settings(extra_runtime_fields=result.cache_payload)
+    except OSError:
+        # Degrade gracefully on cache persistence failures.
+        pass
+
+    return AppVersionResponse(
+        current_version=result.current_version,
+        latest_version=result.latest_version,
+        has_update=result.has_update,
+        release_url=result.release_url,
+        checked_at=result.checked_at,
+    )
 
 
 @app.get("/v1/dashboard/summary", response_model=DashboardSummaryResponse)

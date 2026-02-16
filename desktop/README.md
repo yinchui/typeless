@@ -33,3 +33,11 @@ Runtime settings:
 Static constants at top of `desktop/hotkey_agent.ahk`:
 - `baseUrl`
 - hotkey: `!Space` (Alt + Space)
+
+Runtime directory:
+- default: `%LOCALAPPDATA%\Typeless\runtime`
+- override with env var `VTO_RUNTIME_DIR`
+
+Update check:
+- Hotkey agent checks `GET /v1/app/version` on startup and when opening dashboard.
+- When update is available, dashboard home shows a clickable "发现新版本 vX.Y.Z" entry.
