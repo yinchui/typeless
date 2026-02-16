@@ -47,7 +47,24 @@ jobs:
       - name: Build hotkey agent executable
         shell: pwsh
         run: |
-          .\scripts\build-agent.ps1
+          $logFile = Join-Path $env:RUNNER_TEMP "build-agent.log"
+          if (Test-Path $logFile) { Remove-Item $logFile -Force }
+
+          try {
+            .\scripts\build-agent.ps1 *>&1 | Tee-Object -FilePath $logFile
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+              throw "build-agent exited with code $LASTEXITCODE"
+            }
+          }
+          catch {
+            $err = $_.Exception.Message
+            $tail = ""
+            if (Test-Path $logFile) {
+              $tail = ((Get-Content $logFile -Tail 80) -join "%0A")
+            }
+            Write-Output "::error title=Build hotkey agent executable failed::$err%0A$tail"
+            throw
+          }
 
       - name: Build installer
         shell: pwsh
