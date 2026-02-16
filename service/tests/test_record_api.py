@@ -72,3 +72,29 @@ def test_start_record_accepts_existing_text(client, monkeypatch) -> None:
 
     session = store.get(session_id)
     assert session.existing_text == "前面已有的文字"
+
+
+def test_record_stop_short_plain_text_bypasses_rewrite(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "voice_text_organizer.main.transcribe_audio",
+        lambda _path, language_hint="auto": "你好",
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+    monkeypatch.setattr(
+        "voice_text_organizer.main.route_rewrite",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("rewrite should be bypassed")),
+        raising=False,
+    )
+
+    start = client.post("/v1/record/start", json={})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
+    assert stop.status_code == 200
+    assert stop.json()["voice_text"] == "你好"
+    assert stop.json()["final_text"] == "你好"

@@ -21,3 +21,23 @@ def test_start_and_stop_returns_final_text(monkeypatch) -> None:
     )
     assert stop_response.status_code == 200
     assert "final_text" in stop_response.json()
+
+
+def test_stop_short_plain_text_bypasses_rewrite(monkeypatch) -> None:
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        "voice_text_organizer.main.route_rewrite",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("rewrite should be bypassed")),
+    )
+
+    start_response = client.post("/v1/session/start", json={})
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session_id"]
+
+    stop_response = client.post(
+        "/v1/session/stop",
+        json={"session_id": session_id, "voice_text": "ok", "mode": "cloud"},
+    )
+    assert stop_response.status_code == 200
+    assert stop_response.json()["final_text"] == "ok"

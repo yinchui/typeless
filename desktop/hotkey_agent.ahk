@@ -12,6 +12,7 @@ global httpReceiveTimeoutMs := 600000
 global recordingStarted := false
 global currentSessionId := ""
 global targetWindowId := 0
+global replaceSelectionOnInsert := false
 global toggleBusy := false
 global pausePlaybackDuringRecording := true
 global playbackPauseToggledForRecording := false
@@ -115,12 +116,13 @@ HasActiveRecording()
 
 StartRecordingSession()
 {
-    global recordingStarted, currentSessionId, targetWindowId, dashboardRecordingStartTick
+    global recordingStarted, currentSessionId, targetWindowId, replaceSelectionOnInsert, dashboardRecordingStartTick
     try
     {
         PausePlaybackForRecording()
         targetWindowId := WinExist("A")
         selectedText := GetSelectedTextSafe()
+        replaceSelectionOnInsert := (selectedText != "")
         existingText := ""
         if (selectedText = "")
             existingText := GetFullTextSafe()
@@ -136,10 +138,15 @@ StartRecordingSession()
         recordingStarted := true
         dashboardRecordingStartTick := A_TickCount
         ShowWaveformIndicator()
-        LogLine("start ok, session=" . sessionId . ", targetWindowId=" . targetWindowId)
+        LogLine(
+            "start ok, session=" . sessionId
+            . ", targetWindowId=" . targetWindowId
+            . ", replaceSelectionOnInsert=" . (replaceSelectionOnInsert ? "true" : "false")
+        )
     }
     catch Error as err
     {
+        replaceSelectionOnInsert := false
         dashboardRecordingStartTick := 0
         ResumePlaybackAfterRecording()
         HideWaveformIndicator()
@@ -150,7 +157,7 @@ StartRecordingSession()
 
 StopRecordingSession()
 {
-    global recordingStarted, currentSessionId, targetWindowId
+    global recordingStarted, currentSessionId, targetWindowId, replaceSelectionOnInsert
     if (!HasActiveRecording())
     {
         LogLine("stop ignored: no active recording")
@@ -169,7 +176,7 @@ StopRecordingSession()
             LogLine("stop returned empty final text")
             return
         }
-        InsertText(finalText)
+        InsertText(finalText, replaceSelectionOnInsert)
         LoadDashboardDataFromServer()
         RefreshDashboardHomeMetrics()
         RefreshDashboardDictionaryList()
@@ -186,6 +193,7 @@ StopRecordingSession()
         recordingStarted := false
         currentSessionId := ""
         targetWindowId := 0
+        replaceSelectionOnInsert := false
     }
 }
 
@@ -1038,7 +1046,7 @@ GetFullTextSafe()
     return fullText
 }
 
-InsertText(text)
+InsertText(text, replaceSelection := false)
 {
     global targetWindowId
 
@@ -1050,9 +1058,12 @@ InsertText(text)
 
     ; Give the foreground app a brief moment to regain focus after hotkey release.
     Sleep(80)
-    ; Clear any auto-selection to avoid replacing existing content on paste.
-    Send("{End}")
-    Sleep(50)
+    if (!replaceSelection)
+    {
+        ; For normal append mode, clear any auto-selection to avoid replacing content.
+        Send("{End}")
+        Sleep(50)
+    }
 
     clipSaved := ClipboardAll()
     try
@@ -1076,6 +1087,7 @@ InsertText(text)
         Sleep(160)
         LogLine(
             "insert via clipboard paste, length=" . StrLen(text)
+            . ", replaceSelection=" . (replaceSelection ? "true" : "false")
             . ", exe=" . activeExe
             . ", class=" . activeClass
         )
@@ -1086,7 +1098,10 @@ InsertText(text)
         try
         {
             SendText(text)
-            LogLine("insert via SendText fallback, length=" . StrLen(text))
+            LogLine(
+                "insert via SendText fallback, length=" . StrLen(text)
+                . ", replaceSelection=" . (replaceSelection ? "true" : "false")
+            )
         }
         catch Error as err
         {

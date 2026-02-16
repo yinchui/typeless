@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import wave
 from typing import Any
@@ -198,6 +199,35 @@ def _wav_duration_seconds(path: Path) -> int:
         return 0
 
 
+_CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?")
+
+
+def _is_short_plain_utterance(voice_text: str) -> bool:
+    text = voice_text.strip()
+    if not text:
+        return False
+
+    if "\n" in text:
+        return False
+
+    cjk_chars = len(_CJK_CHAR_RE.findall(text))
+    latin_words = len(_LATIN_WORD_RE.findall(text))
+    total_len = len(text)
+
+    if cjk_chars > 0:
+        return cjk_chars <= 12 and latin_words <= 6 and total_len <= 40
+    return latin_words <= 4 and total_len <= 40
+
+
+def _should_bypass_rewrite(voice_text: str, *, selected_text: str | None, existing_text: str | None) -> bool:
+    if selected_text:
+        return False
+    if existing_text:
+        return False
+    return _is_short_plain_utterance(voice_text)
+
+
 app = FastAPI()
 
 @app.get("/health")
@@ -335,19 +365,26 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
     if not voice_text:
         raise HTTPException(status_code=422, detail="voice_text is empty")
 
-    messages = build_prompt(
+    if _should_bypass_rewrite(
         voice_text,
         selected_text=session.selected_text,
         existing_text=session.existing_text,
-    )
-    final_text = route_rewrite(
-        messages,
-        cloud_fn=cloud_provider,
-        local_fn=local_provider,
-        default_mode=payload.mode or settings.default_mode,
-        fallback=settings.fallback_to_local_on_cloud_error,
-    )
-    final_text = postprocess_rewrite_output(final_text)
+    ):
+        final_text = postprocess_rewrite_output(voice_text)
+    else:
+        messages = build_prompt(
+            voice_text,
+            selected_text=session.selected_text,
+            existing_text=session.existing_text,
+        )
+        final_text = route_rewrite(
+            messages,
+            cloud_fn=cloud_provider,
+            local_fn=local_provider,
+            default_mode=payload.mode or settings.default_mode,
+            fallback=settings.fallback_to_local_on_cloud_error,
+        )
+        final_text = postprocess_rewrite_output(final_text)
     return StopSessionResponse(final_text=final_text)
 
 
@@ -375,19 +412,26 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
         if not voice_text:
             raise HTTPException(status_code=422, detail="no speech detected")
 
-        messages = build_prompt(
+        if _should_bypass_rewrite(
             voice_text,
             selected_text=session.selected_text,
             existing_text=session.existing_text,
-        )
-        final_text = route_rewrite(
-            messages,
-            cloud_fn=cloud_provider,
-            local_fn=local_provider,
-            default_mode=payload.mode or settings.default_mode,
-            fallback=settings.fallback_to_local_on_cloud_error,
-        )
-        final_text = postprocess_rewrite_output(final_text)
+        ):
+            final_text = postprocess_rewrite_output(voice_text)
+        else:
+            messages = build_prompt(
+                voice_text,
+                selected_text=session.selected_text,
+                existing_text=session.existing_text,
+            )
+            final_text = route_rewrite(
+                messages,
+                cloud_fn=cloud_provider,
+                local_fn=local_provider,
+                default_mode=payload.mode or settings.default_mode,
+                fallback=settings.fallback_to_local_on_cloud_error,
+            )
+            final_text = postprocess_rewrite_output(final_text)
         history_store.record_transcript(
             mode=payload.mode or settings.default_mode,
             voice_text=voice_text,
