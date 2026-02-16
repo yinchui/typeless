@@ -127,10 +127,28 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 $ahk2exe = Resolve-Ahk2Exe
 $ahkBase = Resolve-AhkBaseExe
 
-& $ahk2exe /in $sourceScript /out $outputExe /base $ahkBase
+$nativeExitHandling = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+if ($nativeExitHandling) {
+    $previousNativeExitHandling = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
+try {
+    & $ahk2exe /in $sourceScript /out $outputExe /base $ahkBase
+    $ahkExitCode = $LASTEXITCODE
+}
+finally {
+    if ($nativeExitHandling) {
+        $PSNativeCommandUseErrorActionPreference = $previousNativeExitHandling
+    }
+}
 
 if (-not (Test-Path $outputExe)) {
-    throw "Agent executable missing after build: $outputExe"
+    throw "Agent executable missing after build: $outputExe (Ahk2Exe exit code: $ahkExitCode)"
+}
+
+if ($ahkExitCode -ne 0) {
+    Write-Warning "Ahk2Exe exited with code $ahkExitCode, but output executable exists and will be used."
 }
 
 Write-Host "Agent build complete: $outputExe"
