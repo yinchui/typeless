@@ -36,7 +36,7 @@ jobs:
       - name: Install AutoHotkey + Inno Setup
         shell: pwsh
         run: |
-          choco install autohotkey -y --no-progress
+          winget install --id AutoHotkey.AutoHotkey --exact --source winget --silent --accept-source-agreements --accept-package-agreements
           choco install innosetup -y --no-progress
 
       - name: Build backend executable
