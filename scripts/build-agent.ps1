@@ -20,10 +20,16 @@ function Resolve-AhkBaseExe {
     $candidates = @(
         (Join-Path $env:ProgramFiles "AutoHotkey\v2\AutoHotkey64.exe"),
         (Join-Path $env:ProgramFiles "AutoHotkey\AutoHotkey64.exe"),
+        (Join-Path $env:ProgramFiles "AutoHotkey\v2\AutoHotkey.exe"),
+        (Join-Path $env:ProgramFiles "AutoHotkey\AutoHotkey.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "AutoHotkey\v2\AutoHotkey64.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "AutoHotkey\AutoHotkey64.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "AutoHotkey\v2\AutoHotkey.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "AutoHotkey\AutoHotkey.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\AutoHotkey\v2\AutoHotkey64.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\AutoHotkey\AutoHotkey64.exe")
+        (Join-Path $env:LOCALAPPDATA "Programs\AutoHotkey\AutoHotkey64.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\AutoHotkey\v2\AutoHotkey.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\AutoHotkey\AutoHotkey.exe")
     )
     foreach ($candidate in $candidates) {
         if (Test-Path $candidate) {
@@ -49,6 +55,36 @@ function Resolve-AhkInstallerScript {
         }
     }
     return $null
+}
+
+function Download-Ahk2ExeBundle {
+    param([string]$RootDir)
+
+    $toolsRoot = Join-Path $RootDir "dist\tools\ahk2exe"
+    $bundleDir = Join-Path $toolsRoot "bundle"
+    $zipPath = Join-Path $toolsRoot "Ahk2Exe.zip"
+
+    New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
+
+    $headers = @{ "User-Agent" = "typeless-build-agent" }
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest" -Headers $headers
+    $asset = $release.assets | Where-Object { $_.name -match "\.zip$" } | Select-Object -First 1
+    if (-not $asset) {
+        throw "No zip asset found in AutoHotkey/Ahk2Exe latest release."
+    }
+
+    Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $zipPath
+
+    if (Test-Path $bundleDir) {
+        Remove-Item -Recurse -Force $bundleDir
+    }
+    Expand-Archive -Path $zipPath -DestinationPath $bundleDir -Force
+
+    $exe = Get-ChildItem -Path $bundleDir -Filter "Ahk2Exe.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $exe) {
+        throw "Downloaded Ahk2Exe bundle does not contain Ahk2Exe.exe"
+    }
+    return $exe.FullName
 }
 
 function Resolve-Ahk2Exe {
@@ -83,7 +119,8 @@ function Resolve-Ahk2Exe {
         }
     }
 
-    throw "Ahk2Exe.exe not found. Install AutoHotkey v2 compiler first."
+    Write-Host "Ahk2Exe not found in system paths. Downloading standalone Ahk2Exe bundle..."
+    return Download-Ahk2ExeBundle -RootDir $repoRoot
 }
 
 if (-not (Test-Path $sourceScript)) {
