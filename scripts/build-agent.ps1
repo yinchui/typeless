@@ -67,8 +67,17 @@ function Download-Ahk2ExeBundle {
     New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
 
     $headers = @{ "User-Agent" = "typeless-build-agent" }
-    $downloadUrl = "https://github.com/AutoHotkey/Ahk2Exe/releases/latest/download/Ahk2Exe.zip"
-    Invoke-WebRequest -Uri $downloadUrl -Headers $headers -OutFile $zipPath
+    if ($env:GITHUB_TOKEN) {
+        $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
+    }
+
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest" -Headers $headers
+    $asset = $release.assets | Where-Object { $_.name -match "\.zip$" } | Select-Object -First 1
+    if (-not $asset) {
+        throw "No zip asset found in AutoHotkey/Ahk2Exe latest release."
+    }
+
+    Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $zipPath
 
     if (Test-Path $bundleDir) {
         Remove-Item -Recurse -Force $bundleDir
