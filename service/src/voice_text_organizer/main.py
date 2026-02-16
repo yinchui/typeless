@@ -114,12 +114,12 @@ recorder = AudioRecorder()
 history_store = HistoryStore(Path(__file__).resolve().parents[2] / "runtime" / "history.db")
 
 
-def cloud_provider(prompt: str) -> str:
-    return rewrite_with_siliconflow(prompt, settings=settings)
+def cloud_provider(messages: list[dict[str, str]]) -> str:
+    return rewrite_with_siliconflow(messages, settings=settings)
 
 
-def local_provider(prompt: str) -> str:
-    return rewrite_with_ollama(prompt, settings=settings)
+def local_provider(messages: list[dict[str, str]]) -> str:
+    return rewrite_with_ollama(messages, settings=settings)
 
 
 def transcribe_audio(audio_path: Path, language_hint: str = "auto") -> str:
@@ -214,13 +214,19 @@ def dashboard_add_manual_term(payload: DashboardTermAddRequest) -> DashboardTerm
 
 @app.post("/v1/session/start", response_model=StartSessionResponse)
 def start_session(payload: StartSessionRequest) -> StartSessionResponse:
-    session_id = store.create(selected_text=payload.selected_text)
+    session_id = store.create(
+        selected_text=payload.selected_text,
+        existing_text=payload.existing_text,
+    )
     return StartSessionResponse(session_id=session_id)
 
 
 @app.post("/v1/record/start", response_model=StartSessionResponse)
 def start_record(payload: StartSessionRequest) -> StartSessionResponse:
-    session_id = store.create(selected_text=payload.selected_text)
+    session_id = store.create(
+        selected_text=payload.selected_text,
+        existing_text=payload.existing_text,
+    )
     try:
         recorder.start(session_id)
     except Exception as exc:
@@ -239,9 +245,13 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
     if not voice_text:
         raise HTTPException(status_code=422, detail="voice_text is empty")
 
-    prompt = build_prompt(voice_text, selected_text=session.selected_text)
+    messages = build_prompt(
+        voice_text,
+        selected_text=session.selected_text,
+        existing_text=session.existing_text,
+    )
     final_text = route_rewrite(
-        prompt,
+        messages,
         cloud_fn=cloud_provider,
         local_fn=local_provider,
         default_mode=payload.mode or settings.default_mode,
@@ -275,9 +285,13 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
         if not voice_text:
             raise HTTPException(status_code=422, detail="no speech detected")
 
-        prompt = build_prompt(voice_text, selected_text=session.selected_text)
+        messages = build_prompt(
+            voice_text,
+            selected_text=session.selected_text,
+            existing_text=session.existing_text,
+        )
         final_text = route_rewrite(
-            prompt,
+            messages,
             cloud_fn=cloud_provider,
             local_fn=local_provider,
             default_mode=payload.mode or settings.default_mode,

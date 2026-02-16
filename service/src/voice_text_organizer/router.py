@@ -2,20 +2,22 @@ from __future__ import annotations
 
 from typing import Callable
 
+Messages = list[dict[str, str]]
+
 
 def route_rewrite(
-    prompt: str,
-    cloud_fn: Callable[[str], str],
-    local_fn: Callable[[str], str],
+    messages: Messages,
+    cloud_fn: Callable[[Messages], str],
+    local_fn: Callable[[Messages], str],
     default_mode: str = "cloud",
     fallback: bool = True,
 ) -> str:
     if default_mode == "local":
-        return local_fn(prompt)
+        return local_fn(messages)
 
     try:
-        return cloud_fn(prompt)
+        return cloud_fn(messages)
     except Exception:
         if fallback:
-            return local_fn(prompt)
+            return local_fn(messages)
         raise

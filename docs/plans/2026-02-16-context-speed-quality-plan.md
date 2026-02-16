@@ -1,48 +1,48 @@
-# 修复文字覆盖 + 上下文续写 + 提速提质 Implementation Plan
+# 修复文字覆盖 + 上下文续写 + 提速提质 实现计划
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** 必需子技能：使用 superpowers:executing-plans 逐任务实施此计划。
 
-**Goal:** 修复三个问题：(1) 录音后原有文字被覆盖 (2) 续写时缺乏上下文理解 (3) 改写速度和质量不够好。
+**目标：** 修复三个问题：(1) 录音后原有文字被覆盖 (2) 续写时缺乏上下文理解 (3) 改写速度和质量不够好。
 
-**Architecture:** AHK 端修复焦点抢占和文字获取逻辑；Python 后端增加 `existing_text` 上下文传递，重构 prompt 为 messages 格式并支持续写/选中/独立三种模式，升级默认 LLM 为 DeepSeek-V3。
+**架构：** AHK 端修复焦点抢占和文字获取逻辑；Python 后端增加 `existing_text` 上下文传递，重构 prompt 为 messages 格式并支持续写/选中/独立三种模式，升级默认 LLM 为 DeepSeek-V3。
 
-**Tech Stack:** AutoHotkey v2, Python 3.10+, FastAPI, Pydantic v2, httpx, pytest, pytest-mock.
-
----
-
-## Skills To Apply During Execution
-
-- `@test-driven-development` for every Python step.
-- `@systematic-debugging` if any test or integration behavior fails.
-- `@verification-before-completion` before claiming done.
+**技术栈：** AutoHotkey v2, Python 3.10+, FastAPI, Pydantic v2, httpx, pytest, pytest-mock.
 
 ---
 
-### Task 1: Fix waveform GUI focus stealing
+## 执行期间应用的技能
 
-**Files:**
-- Modify: `desktop/hotkey_agent.ahk:219` (InitWaveformGui)
+- `@test-driven-development` 用于每个 Python 步骤。
+- `@systematic-debugging` 如果任何测试或集成行为失败。
+- `@verification-before-completion` 在声称完成之前。
 
-**Step 1: Modify waveform GUI creation to prevent focus stealing**
+---
 
-In `InitWaveformGui()`, line 219, change:
+### 任务 1: 修复波形 GUI 焦点抢占
+
+**文件：**
+- 修改：`desktop/hotkey_agent.ahk:219`（InitWaveformGui）
+
+**步骤 1: 修改波形 GUI 创建以防止焦点抢占**
+
+在 `InitWaveformGui()`，第 219 行，将：
 ```ahk
 waveformGui := Gui("-Caption +ToolWindow +AlwaysOnTop +E0x20")
 ```
-to:
+改为：
 ```ahk
 waveformGui := Gui("-Caption +ToolWindow +AlwaysOnTop +E0x20 +E0x08000000")
 ```
 
-`E0x08000000` is `WS_EX_NOACTIVATE` — prevents the window from ever becoming the foreground window and stealing focus.
+`E0x08000000` 是 `WS_EX_NOACTIVATE` — 防止窗口成为前台窗口并抢占焦点。
 
-**Step 2: Verify waveform still shows with `NA` flag**
+**步骤 2: 验证波形仍使用 `NA` 标志显示**
 
-Confirm that `ShowWaveformIndicator()` at line 247 already uses `"NA"` option in `waveformGui.Show()`. `NA` means "no activate" during Show. The `+E0x08000000` adds OS-level guarantee even on click or other events.
+确认 `ShowWaveformIndicator()` 在第 247 行已在 `waveformGui.Show()` 中使用 `"NA"` 选项。`NA` 表示显示时"不激活"。`+E0x08000000` 即使在点击或其他事件上也增加了操作系统级别的保证。
 
-Line 247 already has: `waveformGui.Show("NA x" . x . " y" . y)` — confirmed OK.
+第 247 行已有：`waveformGui.Show("NA x" . x . " y" . y)` — 确认无误。
 
-**Step 3: Commit**
+**步骤 3: 提交**
 
 ```bash
 git add desktop/hotkey_agent.ahk
@@ -51,34 +51,34 @@ git commit -m "fix: prevent waveform GUI from stealing focus (WS_EX_NOACTIVATE)"
 
 ---
 
-### Task 2: Fix InsertText to preserve existing text
+### 任务 2: 修复 InsertText 保留现有文字
 
-**Files:**
-- Modify: `desktop/hotkey_agent.ahk:894-951` (InsertText)
+**文件：**
+- 修改：`desktop/hotkey_agent.ahk:894-951`（InsertText）
 
-**Step 1: Add deselect safety in InsertText before pasting**
+**步骤 1: 在粘贴前添加取消选择安全处理**
 
-In `InsertText()`, after the `Sleep(80)` on line 905, before the clipboard paste logic on line 907, add:
+在 `InsertText()`，第 905 行的 `Sleep(80)` 之后，第 907 行的剪贴板粘贴逻辑之前，添加：
 
 ```ahk
-    ; Deselect any auto-selected text to prevent overwriting existing content.
+    ; 取消选择任何自动选中的文字，防止覆盖现有内容。
     Send("{End}")
     Sleep(50)
 ```
 
-The full updated section (lines 904-907) becomes:
+更新后的完整部分（第 904-907 行）：
 ```ahk
-    ; Give the foreground app a brief moment to regain focus after hotkey release.
+    ; 给前台应用一个短暂的时间在热键释放后重新获得焦点。
     Sleep(80)
 
-    ; Deselect any auto-selected text to prevent overwriting existing content.
+    ; 取消选择任何自动选中的文字，防止覆盖现有内容。
     Send("{End}")
     Sleep(50)
 
     clipSaved := ClipboardAll()
 ```
 
-**Step 2: Commit**
+**步骤 2: 提交**
 
 ```bash
 git add desktop/hotkey_agent.ahk
@@ -87,14 +87,14 @@ git commit -m "fix: deselect text before paste to prevent overwriting existing c
 
 ---
 
-### Task 3: Add GetFullTextSafe function to AHK
+### 任务 3: 在 AHK 中添加 GetFullTextSafe 函数
 
-**Files:**
-- Modify: `desktop/hotkey_agent.ahk` (after `GetSelectedTextSafe`, ~line 892)
+**文件：**
+- 修改：`desktop/hotkey_agent.ahk`（在 `GetSelectedTextSafe` 之后，约第 892 行）
 
-**Step 1: Add GetFullTextSafe function**
+**步骤 1: 添加 GetFullTextSafe 函数**
 
-Insert after `GetSelectedTextSafe()` (after line 892):
+在 `GetSelectedTextSafe()` 之后（第 892 行之后）插入：
 
 ```ahk
 GetFullTextSafe()
@@ -109,7 +109,7 @@ GetFullTextSafe()
         Send("^c")
         if (ClipWait(0.3))
             fullText := A_Clipboard
-        ; Deselect and move cursor to end
+        ; 取消选择并将光标移到末尾
         Send("{End}")
     }
     finally
@@ -120,7 +120,7 @@ GetFullTextSafe()
 }
 ```
 
-**Step 2: Commit**
+**步骤 2: 提交**
 
 ```bash
 git add desktop/hotkey_agent.ahk
@@ -129,15 +129,15 @@ git commit -m "feat: add GetFullTextSafe to capture all text in input field"
 
 ---
 
-### Task 4: Modify StartRecordingSession to capture existing text
+### 任务 4: 修改 StartRecordingSession 以捕获现有文字
 
-**Files:**
-- Modify: `desktop/hotkey_agent.ahk:100-130` (StartRecordingSession)
-- Modify: `desktop/hotkey_agent.ahk:953-958` (ApiStartRecord)
+**文件：**
+- 修改：`desktop/hotkey_agent.ahk:100-130`（StartRecordingSession）
+- 修改：`desktop/hotkey_agent.ahk:953-958`（ApiStartRecord）
 
-**Step 1: Update StartRecordingSession to capture existing text**
+**步骤 1: 更新 StartRecordingSession 以捕获现有文字**
 
-Replace lines 105-108:
+替换第 105-108 行：
 ```ahk
         PausePlaybackForRecording()
         targetWindowId := WinExist("A")
@@ -145,7 +145,7 @@ Replace lines 105-108:
         sessionId := ApiStartRecord(selectedText)
 ```
 
-With:
+改为：
 ```ahk
         PausePlaybackForRecording()
         targetWindowId := WinExist("A")
@@ -156,9 +156,9 @@ With:
         sessionId := ApiStartRecord(selectedText, existingText)
 ```
 
-**Step 2: Update ApiStartRecord to send existing_text**
+**步骤 2: 更新 ApiStartRecord 以发送 existing_text**
 
-Replace lines 953-958:
+替换第 953-958 行：
 ```ahk
 ApiStartRecord(selectedText)
 {
@@ -169,7 +169,7 @@ ApiStartRecord(selectedText)
 }
 ```
 
-With:
+改为：
 ```ahk
 ApiStartRecord(selectedText, existingText := "")
 {
@@ -181,7 +181,7 @@ ApiStartRecord(selectedText, existingText := "")
 }
 ```
 
-**Step 3: Commit**
+**步骤 3: 提交**
 
 ```bash
 git add desktop/hotkey_agent.ahk
@@ -190,16 +190,16 @@ git commit -m "feat: capture existing text and send to backend for context-aware
 
 ---
 
-### Task 5: Add existing_text to schemas and session store
+### 任务 5: 在 schemas 和 session store 中添加 existing_text
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/schemas.py:8-9`
-- Modify: `service/src/voice_text_organizer/session_store.py:8-11,19`
-- Test: `service/tests/test_session_store.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/schemas.py:8-9`
+- 修改：`service/src/voice_text_organizer/session_store.py:8-11,19`
+- 测试：`service/tests/test_session_store.py`
 
-**Step 1: Write the failing test**
+**步骤 1: 编写失败的测试**
 
-Add test to `service/tests/test_session_store.py`:
+在 `service/tests/test_session_store.py` 中添加测试：
 
 ```python
 def test_create_session_with_existing_text():
@@ -217,25 +217,25 @@ def test_create_session_existing_text_defaults_none():
     assert session.existing_text is None
 ```
 
-**Step 2: Run test to verify it fails**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_session_store.py -v -k "existing_text"`
-Expected: FAIL — `create()` doesn't accept `existing_text` parameter.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_session_store.py -v -k "existing_text"`
+预期：FAIL — `create()` 不接受 `existing_text` 参数。
 
-**Step 3: Update schemas.py**
+**步骤 3: 更新 schemas.py**
 
-In `service/src/voice_text_organizer/schemas.py`, change `StartSessionRequest` (lines 8-9):
+在 `service/src/voice_text_organizer/schemas.py` 中，修改 `StartSessionRequest`（第 8-9 行）：
 ```python
 class StartSessionRequest(BaseModel):
     selected_text: str | None = None
     existing_text: str | None = None
 ```
 
-**Step 4: Update session_store.py**
+**步骤 4: 更新 session_store.py**
 
-In `service/src/voice_text_organizer/session_store.py`:
+在 `service/src/voice_text_organizer/session_store.py` 中：
 
-Update `Session` dataclass (lines 8-11):
+更新 `Session` 数据类（第 8-11 行）：
 ```python
 @dataclass
 class Session:
@@ -244,7 +244,7 @@ class Session:
     existing_text: str | None = None
 ```
 
-Update `create` method (line 19):
+更新 `create` 方法（第 19 行）：
 ```python
     def create(self, selected_text: str | None = None, existing_text: str | None = None) -> str:
         session_id = str(uuid4())
@@ -257,12 +257,12 @@ Update `create` method (line 19):
         return session_id
 ```
 
-**Step 5: Run test to verify it passes**
+**步骤 5: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_session_store.py -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_session_store.py -v`
+预期：全部通过
 
-**Step 6: Commit**
+**步骤 6: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/schemas.py service/src/voice_text_organizer/session_store.py service/tests/test_session_store.py
@@ -271,35 +271,35 @@ git commit -m "feat: add existing_text field to session schema and store"
 
 ---
 
-### Task 6: Refactor build_prompt to return messages list with three modes
+### 任务 6: 重构 build_prompt 返回 messages 列表并支持三种模式
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/rewrite.py`
-- Test: `service/tests/test_rewrite.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/rewrite.py`
+- 测试：`service/tests/test_rewrite.py`
 
-**Step 1: Write the failing tests**
+**步骤 1: 编写失败的测试**
 
-Add/replace tests in `service/tests/test_rewrite.py`:
+在 `service/tests/test_rewrite.py` 中添加/替换测试：
 
 ```python
 from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
 
 
 def test_build_prompt_standalone_mode():
-    """No context — independent rewrite."""
+    """无上下文 — 独立改写。"""
     messages = build_prompt("今天天气真不错我想出去走走")
     assert isinstance(messages, list)
     assert len(messages) == 2
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"
     assert "今天天气真不错" in messages[1]["content"]
-    # Should NOT mention existing text or selected text
+    # 不应提及已有文字或选中文字
     assert "已有文字" not in messages[1]["content"]
     assert "existing" not in messages[1]["content"].lower()
 
 
 def test_build_prompt_selected_text_mode():
-    """Selected text — refine/replace mode."""
+    """选中文字 — 精炼/替换模式。"""
     messages = build_prompt("把这段改成更正式的", selected_text="嗨大家好")
     assert isinstance(messages, list)
     assert len(messages) == 2
@@ -310,7 +310,7 @@ def test_build_prompt_selected_text_mode():
 
 
 def test_build_prompt_continuation_mode():
-    """Has existing_text but no selected_text — continuation mode."""
+    """有 existing_text 但无 selected_text — 续写模式。"""
     messages = build_prompt(
         "然后我们去吃午饭",
         existing_text="今天上午开了个会",
@@ -324,19 +324,19 @@ def test_build_prompt_continuation_mode():
 
 
 def test_build_prompt_continuation_truncates_long_context():
-    """existing_text over 2000 chars gets truncated to last 2000."""
+    """existing_text 超过 2000 字符时截断为最后 2000。"""
     long_text = "这是很长的文字。" * 500  # 4000 chars
     messages = build_prompt("继续写", existing_text=long_text)
     user_content = messages[1]["content"]
-    # The existing text in prompt should be truncated
+    # 提示中的已有文字应该被截断
     assert len(long_text) > 2000
-    # We can't check exact chars because it's embedded in prompt,
-    # but the full 4000-char string should NOT appear verbatim
+    # 无法检查精确字符数，因为嵌入在提示中，
+    # 但完整的 4000 字符字符串不应原样出现
     assert long_text not in user_content
 
 
 def test_build_prompt_selected_text_takes_priority_over_existing():
-    """When both selected_text and existing_text are provided, selected_text mode is used."""
+    """当同时提供 selected_text 和 existing_text 时，使用 selected_text 模式。"""
     messages = build_prompt(
         "改成英文",
         selected_text="你好世界",
@@ -344,18 +344,18 @@ def test_build_prompt_selected_text_takes_priority_over_existing():
     )
     user_content = messages[1]["content"]
     assert "你好世界" in user_content
-    # existing_text is ignored when selected_text is present
+    # 当 selected_text 存在时，existing_text 被忽略
     assert "前面的内容" not in user_content
 ```
 
-**Step 2: Run tests to verify they fail**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_rewrite.py -v -k "build_prompt"`
-Expected: FAIL — `build_prompt` returns `str` not `list`.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_rewrite.py -v -k "build_prompt"`
+预期：FAIL — `build_prompt` 返回 `str` 而不是 `list`。
 
-**Step 3: Rewrite build_prompt and simplify rewrite.py**
+**步骤 3: 重写 build_prompt 并简化 rewrite.py**
 
-Replace the entire `build_prompt` function and update `SYSTEM_RULES` in `service/src/voice_text_organizer/rewrite.py`:
+替换 `service/src/voice_text_organizer/rewrite.py` 中的整个 `build_prompt` 函数并更新 `SYSTEM_RULES`：
 
 ```python
 SYSTEM_RULES = (
@@ -411,12 +411,12 @@ def build_prompt(
     return [system_msg, {"role": "user", "content": user_content}]
 ```
 
-**Step 4: Run tests to verify they pass**
+**步骤 4: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_rewrite.py -v -k "build_prompt"`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_rewrite.py -v -k "build_prompt"`
+预期：全部通过
 
-**Step 5: Commit**
+**步骤 5: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/rewrite.py service/tests/test_rewrite.py
@@ -425,21 +425,21 @@ git commit -m "feat: refactor build_prompt to messages list with standalone/sele
 
 ---
 
-### Task 7: Update providers to accept messages list
+### 任务 7: 更新 providers 以接受 messages 列表
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/providers/siliconflow.py`
-- Modify: `service/src/voice_text_organizer/providers/ollama.py`
-- Test: `service/tests/test_siliconflow.py`
-- Test: `service/tests/test_ollama.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/providers/siliconflow.py`
+- 修改：`service/src/voice_text_organizer/providers/ollama.py`
+- 测试：`service/tests/test_siliconflow.py`
+- 测试：`service/tests/test_ollama.py`
 
-**Step 1: Write the failing tests**
+**步骤 1: 编写失败的测试**
 
-Update test for siliconflow in `service/tests/test_siliconflow.py` — find existing tests and update the mock call to pass a messages list instead of a string. Add a test like:
+在 `service/tests/test_siliconflow.py` 中更新 siliconflow 的测试 — 找到现有测试并更新 mock 调用以传递 messages 列表而不是字符串。添加如下测试：
 
 ```python
 def test_rewrite_sends_messages_list(mock_httpx_post):
-    """Provider should forward the messages list directly."""
+    """Provider 应直接转发 messages 列表。"""
     messages = [
         {"role": "system", "content": "You are a helper."},
         {"role": "user", "content": "Test input"},
@@ -449,11 +449,11 @@ def test_rewrite_sends_messages_list(mock_httpx_post):
     assert call_json["messages"] == messages
 ```
 
-Similarly for ollama in `service/tests/test_ollama.py`:
+同样在 `service/tests/test_ollama.py` 中为 ollama 添加：
 
 ```python
 def test_rewrite_sends_messages_to_chat_api(mock_httpx_post):
-    """Provider should use /api/chat and forward messages list."""
+    """Provider 应使用 /api/chat 并转发 messages 列表。"""
     messages = [
         {"role": "system", "content": "You are a helper."},
         {"role": "user", "content": "Test input"},
@@ -465,14 +465,14 @@ def test_rewrite_sends_messages_to_chat_api(mock_httpx_post):
     assert call_json["messages"] == messages
 ```
 
-**Step 2: Run tests to verify they fail**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_siliconflow.py tests/test_ollama.py -v -k "messages"`
-Expected: FAIL — providers still expect `str` param.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_siliconflow.py tests/test_ollama.py -v -k "messages"`
+预期：FAIL — providers 仍期望 `str` 参数。
 
-**Step 3: Update siliconflow.py**
+**步骤 3: 更新 siliconflow.py**
 
-Replace `service/src/voice_text_organizer/providers/siliconflow.py`:
+替换 `service/src/voice_text_organizer/providers/siliconflow.py`：
 
 ```python
 from __future__ import annotations
@@ -504,9 +504,9 @@ def rewrite_with_siliconflow(messages: list[dict[str, str]], settings: Settings)
     return data["choices"][0]["message"]["content"].strip()
 ```
 
-**Step 4: Update ollama.py to use /api/chat**
+**步骤 4: 更新 ollama.py 使用 /api/chat**
 
-Replace `service/src/voice_text_organizer/providers/ollama.py`:
+替换 `service/src/voice_text_organizer/providers/ollama.py`：
 
 ```python
 from __future__ import annotations
@@ -531,12 +531,12 @@ def rewrite_with_ollama(messages: list[dict[str, str]], settings: Settings) -> s
     return data["message"]["content"].strip()
 ```
 
-**Step 5: Run tests to verify they pass**
+**步骤 5: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_siliconflow.py tests/test_ollama.py -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_siliconflow.py tests/test_ollama.py -v`
+预期：全部通过
 
-**Step 6: Commit**
+**步骤 6: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/providers/siliconflow.py service/src/voice_text_organizer/providers/ollama.py service/tests/test_siliconflow.py service/tests/test_ollama.py
@@ -545,15 +545,15 @@ git commit -m "feat: update providers to accept messages list instead of prompt 
 
 ---
 
-### Task 8: Update router type signatures
+### 任务 8: 更新 router 类型签名
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/router.py`
-- Test: `service/tests/test_router.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/router.py`
+- 测试：`service/tests/test_router.py`
 
-**Step 1: Write the failing test**
+**步骤 1: 编写失败的测试**
 
-Add to `service/tests/test_router.py`:
+在 `service/tests/test_router.py` 中添加：
 
 ```python
 def test_route_rewrite_passes_messages_to_cloud():
@@ -569,14 +569,14 @@ def test_route_rewrite_passes_messages_to_cloud():
     assert called_with["messages"] == messages
 ```
 
-**Step 2: Run test to verify it fails**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_router.py -v -k "messages"`
-Expected: May pass or fail depending on existing tests. The key is that the type annotation is updated.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_router.py -v -k "messages"`
+预期：可能通过或失败，取决于现有测试。关键是类型注解已更新。
 
-**Step 3: Update router.py**
+**步骤 3: 更新 router.py**
 
-Replace `service/src/voice_text_organizer/router.py`:
+替换 `service/src/voice_text_organizer/router.py`：
 
 ```python
 from __future__ import annotations
@@ -604,12 +604,12 @@ def route_rewrite(
         raise
 ```
 
-**Step 4: Run tests to verify they pass**
+**步骤 4: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_router.py -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_router.py -v`
+预期：全部通过
 
-**Step 5: Commit**
+**步骤 5: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/router.py service/tests/test_router.py
@@ -618,15 +618,15 @@ git commit -m "refactor: update router to use messages list type signature"
 
 ---
 
-### Task 9: Wire existing_text through main.py
+### 任务 9: 在 main.py 中连接 existing_text
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/main.py:215-228,254-296`
-- Test: `service/tests/test_record_api.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/main.py:215-228,254-296`
+- 测试：`service/tests/test_record_api.py`
 
-**Step 1: Write the failing test**
+**步骤 1: 编写失败的测试**
 
-Add to `service/tests/test_record_api.py`:
+在 `service/tests/test_record_api.py` 中添加：
 
 ```python
 def test_start_record_accepts_existing_text(client, mock_recorder):
@@ -636,20 +636,20 @@ def test_start_record_accepts_existing_text(client, mock_recorder):
     })
     assert response.status_code == 200
     session_id = response.json()["session_id"]
-    # Verify existing_text is stored in session
+    # 验证 existing_text 存储在 session 中
     from voice_text_organizer.main import store
     session = store.get(session_id)
     assert session.existing_text == "前面已有的文字"
 ```
 
-**Step 2: Run test to verify it fails**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_record_api.py -v -k "existing_text"`
-Expected: FAIL — `start_record` doesn't pass `existing_text` to `store.create()`.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_record_api.py -v -k "existing_text"`
+预期：FAIL — `start_record` 没有将 `existing_text` 传递给 `store.create()`。
 
-**Step 3: Update main.py**
+**步骤 3: 更新 main.py**
 
-Update `start_record()` (around line 222-228):
+更新 `start_record()`（约第 222-228 行）：
 ```python
 @app.post("/v1/record/start", response_model=StartSessionResponse)
 def start_record(payload: StartSessionRequest) -> StartSessionResponse:
@@ -664,7 +664,7 @@ def start_record(payload: StartSessionRequest) -> StartSessionResponse:
     return StartSessionResponse(session_id=session_id)
 ```
 
-Update `start_session()` (around line 215-218):
+更新 `start_session()`（约第 215-218 行）：
 ```python
 @app.post("/v1/session/start", response_model=StartSessionResponse)
 def start_session(payload: StartSessionRequest) -> StartSessionResponse:
@@ -675,7 +675,7 @@ def start_session(payload: StartSessionRequest) -> StartSessionResponse:
     return StartSessionResponse(session_id=session_id)
 ```
 
-Update `stop_record()` — change `build_prompt` call (around line 278):
+更新 `stop_record()` — 修改 `build_prompt` 调用（约第 278 行）：
 ```python
         prompt = build_prompt(
             voice_text,
@@ -684,9 +684,9 @@ Update `stop_record()` — change `build_prompt` call (around line 278):
         )
 ```
 
-Note: `prompt` is now a messages list. The `route_rewrite` and providers already accept messages.
+注意：`prompt` 现在是 messages 列表。`route_rewrite` 和 providers 已接受 messages。
 
-Update `cloud_provider` and `local_provider` (around lines 117-122):
+更新 `cloud_provider` 和 `local_provider`（约第 117-122 行）：
 ```python
 def cloud_provider(messages: list[dict[str, str]]) -> str:
     return rewrite_with_siliconflow(messages, settings=settings)
@@ -696,7 +696,7 @@ def local_provider(messages: list[dict[str, str]]) -> str:
     return rewrite_with_ollama(messages, settings=settings)
 ```
 
-Same update for `stop_session()` (around line 242):
+同样更新 `stop_session()`（约第 242 行）：
 ```python
         prompt = build_prompt(
             voice_text,
@@ -705,12 +705,12 @@ Same update for `stop_session()` (around line 242):
         )
 ```
 
-**Step 4: Run tests to verify they pass**
+**步骤 4: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
+预期：全部通过
 
-**Step 5: Commit**
+**步骤 5: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/main.py service/tests/test_record_api.py
@@ -719,15 +719,15 @@ git commit -m "feat: wire existing_text through session to build_prompt for cont
 
 ---
 
-### Task 10: Update default model to DeepSeek-V3
+### 任务 10: 将默认模型更新为 DeepSeek-V3
 
-**Files:**
-- Modify: `service/src/voice_text_organizer/config.py:13`
-- Test: `service/tests/test_config.py`
+**文件：**
+- 修改：`service/src/voice_text_organizer/config.py:13`
+- 测试：`service/tests/test_config.py`
 
-**Step 1: Write the test**
+**步骤 1: 编写测试**
 
-Add to `service/tests/test_config.py` (create if not exists):
+在 `service/tests/test_config.py` 中添加（如果不存在则创建）：
 
 ```python
 from voice_text_organizer.config import Settings
@@ -738,24 +738,24 @@ def test_default_model_is_deepseek_v3():
     assert s.siliconflow_model == "deepseek-ai/DeepSeek-V3"
 ```
 
-**Step 2: Run test to verify it fails**
+**步骤 2: 运行测试验证失败**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_config.py -v -k "deepseek"`
-Expected: FAIL — default is still `Qwen/Qwen2.5-7B-Instruct`.
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_config.py -v -k "deepseek"`
+预期：FAIL — 默认仍是 `Qwen/Qwen2.5-7B-Instruct`。
 
-**Step 3: Update config.py**
+**步骤 3: 更新 config.py**
 
-Change line 13 in `service/src/voice_text_organizer/config.py`:
+更改 `service/src/voice_text_organizer/config.py` 第 13 行：
 ```python
     siliconflow_model: str = "deepseek-ai/DeepSeek-V3"
 ```
 
-**Step 4: Run test to verify it passes**
+**步骤 4: 运行测试验证通过**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_config.py -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/test_config.py -v`
+预期：全部通过
 
-**Step 5: Commit**
+**步骤 5: 提交**
 
 ```bash
 git add service/src/voice_text_organizer/config.py service/tests/test_config.py
@@ -764,34 +764,34 @@ git commit -m "feat: switch default LLM to DeepSeek-V3 for better quality and sp
 
 ---
 
-### Task 11: Fix existing tests that break from refactoring
+### 任务 11: 修复因重构而破坏的现有测试
 
-**Files:**
-- Modify: Various test files under `service/tests/`
+**文件：**
+- 修改：`service/tests/` 下的各种测试文件
 
-**Step 1: Run full test suite**
+**步骤 1: 运行完整测试套件**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
 
-Identify any failures caused by:
-- `build_prompt` now returning `list[dict]` instead of `str`
-- Provider functions now expecting `list[dict]` instead of `str`
-- Router now passing `list[dict]` instead of `str`
-- Ollama using `/api/chat` instead of `/api/generate`
+识别由以下原因导致的任何失败：
+- `build_prompt` 现在返回 `list[dict]` 而不是 `str`
+- Provider 函数现在期望 `list[dict]` 而不是 `str`
+- Router 现在传递 `list[dict]` 而不是 `str`
+- Ollama 使用 `/api/chat` 而不是 `/api/generate`
 
-**Step 2: Fix each broken test**
+**步骤 2: 修复每个失败的测试**
 
-Update broken tests to use the new messages list format. Common changes needed:
-- Tests that call `build_prompt()` and assert on the returned string → assert on `messages[1]["content"]`
-- Tests that mock providers with `str` arg → mock with `list[dict]` arg
-- Tests that mock Ollama `/api/generate` → mock `/api/chat` with `{"message": {"content": "..."}}`
+更新损坏的测试以使用新的 messages 列表格式。常见需要的更改：
+- 调用 `build_prompt()` 并对返回的字符串进行断言的测试 → 对 `messages[1]["content"]` 进行断言
+- 用 `str` 参数 mock providers 的测试 → 用 `list[dict]` 参数 mock
+- mock Ollama `/api/generate` 的测试 → mock `/api/chat` 并使用 `{"message": {"content": "..."}}`
 
-**Step 3: Run full test suite again**
+**步骤 3: 再次运行完整测试套件**
 
-Run: `cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
-Expected: ALL PASS
+运行：`cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v`
+预期：全部通过
 
-**Step 4: Commit**
+**步骤 4: 提交**
 
 ```bash
 git add service/tests/
@@ -800,42 +800,42 @@ git commit -m "fix: update existing tests for messages-list refactoring"
 
 ---
 
-### Task 12: End-to-end smoke test
+### 任务 12: 端到端冒烟测试
 
-**Step 1: Start the backend service**
+**步骤 1: 启动后端服务**
 
-Run: `cd /d "E:\AI项目\typeless" && powershell -ExecutionPolicy Bypass -File scripts/run-service.ps1`
+运行：`cd /d "E:\AI项目\typeless" && powershell -ExecutionPolicy Bypass -File scripts/run-service.ps1`
 
-**Step 2: Test standalone mode (no context)**
+**步骤 2: 测试独立模式（无上下文）**
 
 ```bash
 curl -X POST http://127.0.0.1:8775/v1/record/start -H "Content-Type: application/json" -d "{\"selected_text\": null, \"existing_text\": null}"
 ```
 
-Verify: Returns `session_id`.
+验证：返回 `session_id`。
 
-**Step 3: Test continuation mode**
+**步骤 3: 测试续写模式**
 
 ```bash
 curl -X POST http://127.0.0.1:8775/v1/record/start -H "Content-Type: application/json" -d "{\"selected_text\": null, \"existing_text\": \"前面已有的内容\"}"
 ```
 
-Verify: Returns `session_id`. The session stores `existing_text`.
+验证：返回 `session_id`。session 存储了 `existing_text`。
 
-**Step 4: Test settings show new default model**
+**步骤 4: 测试设置显示新默认模型**
 
 ```bash
 curl http://127.0.0.1:8775/v1/settings
 ```
 
-Verify: Response shows the service is running with cloud mode configured.
+验证：响应显示服务以云模式配置运行。
 
-**Step 5: Final commit**
+**步骤 5: 最终提交**
 
-No code changes needed. Verify all tests pass one more time:
+无需代码更改。再次验证所有测试通过：
 
 ```bash
 cd /d "E:\AI项目\typeless\service" && python -m pytest tests/ -v
 ```
 
-Expected: ALL PASS — implementation complete.
+预期：全部通过 — 实现完成。

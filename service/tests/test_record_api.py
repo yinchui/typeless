@@ -56,3 +56,19 @@ def test_record_stop_duplicate_call_returns_404(client, monkeypatch) -> None:
     second_stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "local"})
     assert second_stop.status_code == 404
     assert "already stopped" in second_stop.json()["detail"]
+
+
+def test_start_record_accepts_existing_text(client, monkeypatch) -> None:
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+
+    response = client.post(
+        "/v1/record/start",
+        json={"selected_text": None, "existing_text": "前面已有的文字"},
+    )
+    assert response.status_code == 200
+    session_id = response.json()["session_id"]
+
+    from voice_text_organizer.main import store
+
+    session = store.get(session_id)
+    assert session.existing_text == "前面已有的文字"

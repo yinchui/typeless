@@ -10,7 +10,7 @@ class Settings(BaseModel):
     default_mode: Literal["cloud", "local"] = "cloud"
     fallback_to_local_on_cloud_error: bool = True
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1/chat/completions"
-    siliconflow_model: str = "Qwen/Qwen2.5-7B-Instruct"
+    siliconflow_model: str = "deepseek-ai/DeepSeek-V3"
     siliconflow_asr_url: str = "https://api.siliconflow.cn/v1/audio/transcriptions"
     siliconflow_asr_model: str = "FunAudioLLM/SenseVoiceSmall"
     siliconflow_api_key: str | None = Field(

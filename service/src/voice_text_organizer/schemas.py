@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 class StartSessionRequest(BaseModel):
     selected_text: str | None = None
+    existing_text: str | None = None
 
 
 class StartSessionResponse(BaseModel):

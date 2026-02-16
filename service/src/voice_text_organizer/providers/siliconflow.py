@@ -5,7 +5,7 @@ import httpx
 from voice_text_organizer.config import Settings
 
 
-def rewrite_with_siliconflow(prompt: str, settings: Settings) -> str:
+def rewrite_with_siliconflow(messages: list[dict[str, str]], settings: Settings) -> str:
     if not settings.siliconflow_api_key:
         raise ValueError("Missing SILICONFLOW_API_KEY")
 
@@ -17,7 +17,7 @@ def rewrite_with_siliconflow(prompt: str, settings: Settings) -> str:
         },
         json={
             "model": settings.siliconflow_model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": 0.2,
         },
         timeout=30.0,

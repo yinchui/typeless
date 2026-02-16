@@ -105,7 +105,10 @@ StartRecordingSession()
         PausePlaybackForRecording()
         targetWindowId := WinExist("A")
         selectedText := GetSelectedTextSafe()
-        sessionId := ApiStartRecord(selectedText)
+        existingText := ""
+        if (selectedText = "")
+            existingText := GetFullTextSafe()
+        sessionId := ApiStartRecord(selectedText, existingText)
         if (sessionId = "")
         {
             TrayTip("Voice Text Organizer", "Could not start recording.", 2)
@@ -216,7 +219,7 @@ InitWaveformGui()
     if (IsObject(waveformGui))
         return
 
-    waveformGui := Gui("-Caption +ToolWindow +AlwaysOnTop +E0x20")
+    waveformGui := Gui("-Caption +ToolWindow +AlwaysOnTop +E0x20 +E0x08000000")
     waveformGui.MarginX := 10
     waveformGui.MarginY := 10
     waveformGui.BackColor := "1D1D1D"
@@ -891,6 +894,27 @@ GetSelectedTextSafe()
     return selected
 }
 
+GetFullTextSafe()
+{
+    clipSaved := ClipboardAll()
+    fullText := ""
+    try
+    {
+        A_Clipboard := ""
+        Send("^a")
+        Sleep(50)
+        Send("^c")
+        if (ClipWait(0.3))
+            fullText := A_Clipboard
+        Send("{End}")
+    }
+    finally
+    {
+        A_Clipboard := clipSaved
+    }
+    return fullText
+}
+
 InsertText(text)
 {
     global targetWindowId
@@ -903,6 +927,9 @@ InsertText(text)
 
     ; Give the foreground app a brief moment to regain focus after hotkey release.
     Sleep(80)
+    ; Clear any auto-selection to avoid replacing existing content on paste.
+    Send("{End}")
+    Sleep(50)
 
     clipSaved := ClipboardAll()
     try
@@ -950,10 +977,11 @@ InsertText(text)
     }
 }
 
-ApiStartRecord(selectedText)
+ApiStartRecord(selectedText, existingText := "")
 {
     q := Chr(34)
-    payload := "{" . q . "selected_text" . q . ":" . q . JsonEscape(selectedText) . q . "}"
+    payload := "{" . q . "selected_text" . q . ":" . q . JsonEscape(selectedText) . q
+    payload .= "," . q . "existing_text" . q . ":" . q . JsonEscape(existingText) . q . "}"
     response := HttpPost("/v1/record/start", payload)
     return ExtractJsonString(response, "session_id")
 }

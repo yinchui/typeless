@@ -6,11 +6,16 @@ from voice_text_organizer.rewrite import (
 
 
 def test_build_prompt_includes_selected_context() -> None:
-    prompt = build_prompt("new voice", selected_text="old sentence")
+    messages = build_prompt("new voice", selected_text="old sentence")
+    user_content = messages[1]["content"]
 
-    assert "old sentence" in prompt
-    assert "new voice" in prompt
-    assert "do not add facts" in prompt.lower()
+    assert isinstance(messages, list)
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    assert "old sentence" in user_content
+    assert "new voice" in user_content
+    assert "do not add facts" in messages[0]["content"].lower()
 
 
 def test_detect_semantic_blocks_splits_topics() -> None:
@@ -28,14 +33,16 @@ def test_detect_semantic_blocks_splits_topics() -> None:
 
 
 def test_build_prompt_includes_structure_requirements() -> None:
-    prompt = build_prompt(
+    messages = build_prompt(
         "先做A再做B，另外C也要跟上，最后给我结果。",
         selected_text=None,
     )
+    user_content = messages[1]["content"]
 
-    assert "semantic blocks" in prompt.lower()
-    assert "paragraph" in prompt.lower()
-    assert "bullet" in prompt.lower()
+    assert "organize this spoken text" in user_content.lower()
+    assert "voice text" in user_content.lower()
+    assert "line breaks" in messages[0]["content"].lower()
+    assert "bullet points" in messages[0]["content"].lower()
 
 
 def test_postprocess_adds_structure_for_single_long_line() -> None:
@@ -63,3 +70,36 @@ def test_postprocess_removes_emoji_characters() -> None:
 
     assert "✅" not in cleaned
     assert "🚀" not in cleaned
+
+
+def test_build_prompt_continuation_includes_existing_text() -> None:
+    messages = build_prompt(
+        "然后我们去吃午饭",
+        existing_text="今天上午开了个会",
+    )
+    user_content = messages[1]["content"]
+
+    assert "今天上午开了个会" in user_content
+    assert "然后我们去吃午饭" in user_content
+    assert "continuation" in user_content.lower()
+
+
+def test_build_prompt_selected_text_takes_priority_over_existing_text() -> None:
+    messages = build_prompt(
+        "改成英文",
+        selected_text="你好世界",
+        existing_text="前面的内容",
+    )
+    user_content = messages[1]["content"]
+
+    assert "你好世界" in user_content
+    assert "前面的内容" not in user_content
+
+
+def test_build_prompt_continuation_truncates_long_context() -> None:
+    long_text = "这是很长的文字。" * 500
+    messages = build_prompt("继续写", existing_text=long_text)
+    user_content = messages[1]["content"]
+
+    assert len(long_text) > 2000
+    assert long_text not in user_content

@@ -3,9 +3,15 @@ from __future__ import annotations
 import re
 
 SYSTEM_RULES = (
-    "You are a language organizer. Rewrite spoken input into clear, structured text. "
-    "Remove filler words and redundancy, preserve intent and details, and do not add facts."
+    "You are a language organizer. "
+    "Rewrite spoken input into clear, structured text. "
+    "Remove filler words and redundancy, preserve intent and details, "
+    "and do not add facts. "
+    "Keep the same language as the input. "
+    "Use real line breaks for paragraph separation. "
+    "Use bullet points when listing multiple items or steps."
 )
+MAX_EXISTING_TEXT_CHARS = 2000
 
 TOPIC_MARKER_RE = re.compile(
     r"^(?:"
@@ -146,40 +152,41 @@ def postprocess_rewrite_output(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def build_prompt(voice_text: str, selected_text: str | None = None) -> str:
-    semantic_blocks = detect_semantic_blocks(voice_text)
-    block_section = _format_semantic_blocks(semantic_blocks)
+def _truncate_existing_text(text: str) -> str:
+    if len(text) <= MAX_EXISTING_TEXT_CHARS:
+        return text
+    return "..." + text[-MAX_EXISTING_TEXT_CHARS:]
 
-    structure_rules = (
-        "Output requirements:\n"
-        "- Keep the full meaning and important constraints.\n"
-        "- Remove filler words and repeated fragments.\n"
-        "- Use paragraph breaks when topics change.\n"
-        "- Use bullet points when a paragraph contains multiple steps, conditions, or items.\n"
-        "- Use real line breaks, never output literal \\n tokens.\n"
-        "- Title is optional and usually not needed.\n"
-        "- Keep the same language as the input.\n"
-        "- Do not add facts."
-    )
+
+def build_prompt(
+    voice_text: str,
+    selected_text: str | None = None,
+    existing_text: str | None = None,
+) -> list[dict[str, str]]:
+    system_msg = {"role": "system", "content": SYSTEM_RULES}
 
     if selected_text:
-        return (
-            f"{SYSTEM_RULES}\n"
-            "Detected semantic blocks from voice input:\n"
-            f"{block_section}\n\n"
-            "Selected text to refine:\n"
-            f"{selected_text}\n\n"
-            "New voice instruction:\n"
-            f"{voice_text}\n\n"
-            f"{structure_rules}\n"
+        user_content = (
+            f"Selected text to refine:\n{selected_text}\n\n"
+            f"Voice instruction:\n{voice_text}\n\n"
+            "Rewrite the selected text according to the voice instruction. "
+            "Return only the rewritten text."
+        )
+    elif existing_text:
+        truncated = _truncate_existing_text(existing_text)
+        user_content = (
+            f"The user has already written:\n---\n{truncated}\n---\n\n"
+            f"The user then spoke to continue:\n{voice_text}\n\n"
+            "Output ONLY the new continuation text. "
+            "Do NOT repeat the existing text. "
+            "The continuation must flow naturally from the existing text in style and tone. "
+            "Remove filler words and organize the spoken content clearly."
+        )
+    else:
+        user_content = (
+            f"Voice text:\n{voice_text}\n\n"
+            "Organize this spoken text into clear, structured written text. "
             "Return only the final organized text."
         )
-    return (
-        f"{SYSTEM_RULES}\n"
-        "Detected semantic blocks from voice input:\n"
-        f"{block_section}\n\n"
-        "Voice text:\n"
-        f"{voice_text}\n\n"
-        f"{structure_rules}\n"
-        "Return only the final organized text."
-    )
+
+    return [system_msg, {"role": "user", "content": user_content}]
