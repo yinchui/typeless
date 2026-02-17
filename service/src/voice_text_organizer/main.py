@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import shutil
 import wave
 from typing import Any
@@ -15,10 +14,15 @@ from voice_text_organizer.asr import normalize_asr_text, transcribe_with_silicon
 from voice_text_organizer.audio import AudioRecorder
 from voice_text_organizer.config import Settings
 from voice_text_organizer.history_store import HistoryStore
-from voice_text_organizer.policy import decide_processing_mode
+from voice_text_organizer.policy import (
+    TemplateDecision,
+    decide_template_from_classifier,
+    is_whitelist_translation_command,
+    match_explicit_template_command,
+)
 from voice_text_organizer.providers.ollama import rewrite_with_ollama
 from voice_text_organizer.providers.siliconflow import rewrite_with_siliconflow
-from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
+from voice_text_organizer.rewrite import build_template_prompt, postprocess_rewrite_output
 from voice_text_organizer.runtime_paths import (
     RUNTIME_BACKEND_LOG_PATH,
     RUNTIME_BACKEND_STDERR_LOG_PATH,
@@ -27,6 +31,7 @@ from voice_text_organizer.runtime_paths import (
     RUNTIME_SETTINGS_PATH,
 )
 from voice_text_organizer.router import route_rewrite
+from voice_text_organizer.template_classifier import classify_template
 from voice_text_organizer.schemas import (
     AppVersionResponse,
     StartSessionRequest,
@@ -50,6 +55,7 @@ from voice_text_organizer.version_check import resolve_version
 
 LEGACY_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
 logger = logging.getLogger(__name__)
+DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD = 0.72
 
 
 def _migrate_legacy_runtime_files() -> None:
@@ -202,42 +208,131 @@ def _wav_duration_seconds(path: Path) -> int:
         return 0
 
 
-_CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
-_LATIN_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?")
+def _current_template_threshold() -> float:
+    threshold = getattr(settings, "auto_template_confidence_threshold", DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD)
+    try:
+        value = float(threshold)
+    except (TypeError, ValueError):
+        return DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD
+    if value < 0.0 or value > 1.0:
+        return DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD
+    return value
 
 
-def _is_short_plain_utterance(voice_text: str) -> bool:
-    text = voice_text.strip()
-    if not text:
-        return False
+def _decide_template(
+    voice_text: str,
+    *,
+    selected_text: str | None,
+    existing_text: str | None,
+) -> TemplateDecision:
+    if (selected_text or "").strip() and is_whitelist_translation_command(voice_text):
+        return TemplateDecision(
+            template="translation",
+            decision_type="selected_translation_rewrite",
+            confidence=1.0,
+            reason="selected_text_translation_command",
+        )
 
-    if "\n" in text:
-        return False
+    explicit_template = match_explicit_template_command(voice_text)
+    if explicit_template is not None:
+        return TemplateDecision(
+            template=explicit_template,
+            decision_type="explicit_template",
+            confidence=1.0,
+            reason="explicit_template_command",
+        )
 
-    cjk_chars = len(_CJK_CHAR_RE.findall(text))
-    latin_words = len(_LATIN_WORD_RE.findall(text))
-    total_len = len(text)
-
-    if cjk_chars > 0:
-        return cjk_chars <= 12 and latin_words <= 6 and total_len <= 40
-    return latin_words <= 4 and total_len <= 40
-
-
-def _should_bypass_rewrite(voice_text: str, *, selected_text: str | None, existing_text: str | None) -> bool:
-    if selected_text:
-        return False
-    if existing_text:
-        return False
-    return _is_short_plain_utterance(voice_text)
-
-
-def _log_policy_decision(endpoint: str, *, decision_mode: str) -> None:
-    logger.info(
-        "policy_decision endpoint=%s decision_mode=%s whitelist_hit=%s",
-        endpoint,
-        decision_mode,
-        "true" if decision_mode == "selected_whitelist_rewrite" else "false",
+    classification = classify_template(
+        voice_text,
+        selected_text=selected_text,
+        existing_text=existing_text,
     )
+    return decide_template_from_classifier(
+        predicted_template=classification.template,
+        confidence=classification.confidence,
+        threshold=_current_template_threshold(),
+        reason=classification.reason,
+    )
+
+
+def _log_template_decision(
+    endpoint: str,
+    *,
+    decision_type: str,
+    template: str,
+    confidence: float | None,
+    reason: str | None,
+    fallback: bool,
+) -> None:
+    logger.info(
+        "template_decision endpoint=%s decision_type=%s template=%s confidence=%s reason=%s fallback=%s",
+        endpoint,
+        decision_type,
+        template,
+        confidence if confidence is not None else "n/a",
+        reason or "n/a",
+        "true" if fallback else "false",
+    )
+
+
+def _resolve_final_text(
+    *,
+    endpoint: str,
+    voice_text: str,
+    selected_text: str | None,
+    existing_text: str | None,
+    mode: str | None,
+) -> str:
+    decision = _decide_template(
+        voice_text,
+        selected_text=selected_text,
+        existing_text=existing_text,
+    )
+
+    active_decision_type = decision.decision_type
+    active_template = decision.template
+    fallback = False
+
+    if decision.template == "light_edit":
+        final_text = postprocess_rewrite_output(voice_text)
+    else:
+        try:
+            messages = build_template_prompt(
+                voice_text,
+                template=decision.template,
+                selected_text=selected_text,
+                existing_text=existing_text,
+            )
+            rewritten_text = route_rewrite(
+                messages,
+                cloud_fn=cloud_provider,
+                local_fn=local_provider,
+                default_mode=mode or settings.default_mode,
+                fallback=settings.fallback_to_local_on_cloud_error,
+            )
+            final_text = postprocess_rewrite_output(rewritten_text)
+        except Exception:
+            fallback = True
+            active_decision_type = "template_error_fallback_light"
+            active_template = "light_edit"
+            logger.warning(
+                "template_fallback endpoint=%s stage=rewrite template=%s decision_type=%s",
+                endpoint,
+                decision.template,
+                decision.decision_type,
+                exc_info=True,
+            )
+            final_text = postprocess_rewrite_output(voice_text)
+
+    _log_template_decision(
+        endpoint,
+        decision_type=active_decision_type,
+        template=active_template,
+        confidence=decision.confidence,
+        reason=decision.reason,
+        fallback=fallback,
+    )
+    return final_text
 
 
 app = FastAPI()
@@ -377,37 +472,13 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
     if not voice_text:
         raise HTTPException(status_code=422, detail="voice_text is empty")
 
-    decision_mode = decide_processing_mode(
-        voice_text,
+    final_text = _resolve_final_text(
+        endpoint="session_stop",
+        voice_text=voice_text,
         selected_text=session.selected_text,
         existing_text=session.existing_text,
+        mode=payload.mode,
     )
-    _log_policy_decision("session_stop", decision_mode=decision_mode)
-
-    if decision_mode == "transcribe_only":
-        final_text = postprocess_rewrite_output(voice_text)
-    else:
-        try:
-            messages = build_prompt(
-                voice_text,
-                selected_text=session.selected_text,
-                existing_text=session.existing_text,
-            )
-            final_text = route_rewrite(
-                messages,
-                cloud_fn=cloud_provider,
-                local_fn=local_provider,
-                default_mode=payload.mode or settings.default_mode,
-                fallback=settings.fallback_to_local_on_cloud_error,
-            )
-            final_text = postprocess_rewrite_output(final_text)
-        except Exception:
-            logger.warning(
-                "policy_fallback endpoint=session_stop stage=rewrite decision_mode=%s",
-                decision_mode,
-                exc_info=True,
-            )
-            final_text = postprocess_rewrite_output(voice_text)
     return StopSessionResponse(final_text=final_text)
 
 
@@ -435,37 +506,13 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
         if not voice_text:
             raise HTTPException(status_code=422, detail="no speech detected")
 
-        decision_mode = decide_processing_mode(
-            voice_text,
+        final_text = _resolve_final_text(
+            endpoint="record_stop",
+            voice_text=voice_text,
             selected_text=session.selected_text,
             existing_text=session.existing_text,
+            mode=payload.mode,
         )
-        _log_policy_decision("record_stop", decision_mode=decision_mode)
-
-        if decision_mode == "transcribe_only":
-            final_text = postprocess_rewrite_output(voice_text)
-        else:
-            try:
-                messages = build_prompt(
-                    voice_text,
-                    selected_text=session.selected_text,
-                    existing_text=session.existing_text,
-                )
-                final_text = route_rewrite(
-                    messages,
-                    cloud_fn=cloud_provider,
-                    local_fn=local_provider,
-                    default_mode=payload.mode or settings.default_mode,
-                    fallback=settings.fallback_to_local_on_cloud_error,
-                )
-                final_text = postprocess_rewrite_output(final_text)
-            except Exception:
-                logger.warning(
-                    "policy_fallback endpoint=record_stop stage=rewrite decision_mode=%s",
-                    decision_mode,
-                    exc_info=True,
-                )
-                final_text = postprocess_rewrite_output(voice_text)
         history_store.record_transcript(
             mode=payload.mode or settings.default_mode,
             voice_text=voice_text,
