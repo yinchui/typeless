@@ -51,6 +51,7 @@ if (-not (Test-Path $entryScript)) {
 
 if (-not $SkipDependencyInstall) {
     & $pythonExe -m pip install --upgrade pip
+    & $pythonExe -m pip install -e $serviceDir
     & $pythonExe -m pip install pyinstaller
 }
 
@@ -72,6 +73,10 @@ if (-not (Test-Path $bundleDir)) {
 }
 
 Get-ChildItem $bundleDir -Force | ForEach-Object {
+    $destinationPath = Join-Path $distDir $_.Name
+    if (Test-Path $destinationPath) {
+        Remove-Item -Path $destinationPath -Recurse -Force
+    }
     Move-Item -Path $_.FullName -Destination $distDir -Force
 }
 Remove-Item -Path $bundleDir -Recurse -Force

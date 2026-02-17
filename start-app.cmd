@@ -39,6 +39,8 @@ if not defined AHK_EXE (
     exit /b 1
 )
 
+call :stop_conflicting_typeless_backend
+
 call :probe_health
 if not "%SERVICE_UP%"=="200" (
     start "Voice Text Organizer Service" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%RUN_SERVICE_PS1%"
@@ -59,6 +61,27 @@ if "%SERVICE_UP%"=="200" (
 )
 echo - Service script: %RUN_SERVICE_PS1%
 echo - Hotkey script: %HOTKEY_AHK%
+exit /b 0
+
+:stop_conflicting_typeless_backend
+set "PORT_OWNER="
+set "PORT_OWNER_PID="
+set "PORT_OWNER_NAME="
+set "PORT_OWNER_PATH="
+for /f "usebackq delims=" %%L in (`powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort 8775 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($conn){ $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $conn.OwningProcess); if($proc){ Write-Output ($proc.ProcessId.ToString() + '|' + $proc.Name + '|' + $proc.ExecutablePath) } }"`) do set "PORT_OWNER=%%L"
+if not defined PORT_OWNER exit /b 0
+
+for /f "tokens=1-3 delims=|" %%A in ("%PORT_OWNER%") do (
+    set "PORT_OWNER_PID=%%~A"
+    set "PORT_OWNER_NAME=%%~B"
+    set "PORT_OWNER_PATH=%%~C"
+)
+
+if /i "%PORT_OWNER_NAME%"=="TypelessService.exe" (
+    echo [INFO] Stopping existing Typeless backend on port 8775: %PORT_OWNER_PATH%
+    taskkill /PID %PORT_OWNER_PID% /F >nul 2>nul
+    timeout /t 1 /nobreak >nul
+)
 exit /b 0
 
 :probe_health

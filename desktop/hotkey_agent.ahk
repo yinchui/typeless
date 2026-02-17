@@ -507,7 +507,7 @@ EnsureDashboardGui()
     global dashboardNavHome, dashboardNavDict
     global dashboardMetricPersonality, dashboardMetricTotalTime, dashboardMetricChars
     global dashboardMetricSaved, dashboardMetricSpeed
-    global dashboardDictSearch, dashboardDictList
+    global dashboardDictSearch, dashboardDictList, dashboardDictDeleteBtn
     global dashboardFilterAll, dashboardFilterAuto, dashboardFilterManual
     global dashboardUpdateLink
 
