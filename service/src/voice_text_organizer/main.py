@@ -366,11 +366,13 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
     if not voice_text:
         raise HTTPException(status_code=422, detail="voice_text is empty")
 
-    if _should_bypass_rewrite(
+    decision_mode = decide_processing_mode(
         voice_text,
         selected_text=session.selected_text,
         existing_text=session.existing_text,
-    ):
+    )
+
+    if decision_mode == "transcribe_only":
         final_text = postprocess_rewrite_output(voice_text)
     else:
         messages = build_prompt(
