@@ -103,3 +103,23 @@ def test_build_prompt_continuation_truncates_long_context() -> None:
 
     assert len(long_text) > 2000
     assert long_text not in user_content
+
+
+def test_postprocess_removes_zh_fillers() -> None:
+    raw = "\u55ef\uff0c\u6211\u4eec\u4eca\u5929\u5443\uff0c\u786e\u5b9a\u53d1\u5e03\u8303\u56f4\u3002"
+
+    cleaned = postprocess_rewrite_output(raw)
+
+    assert "\u55ef" not in cleaned
+    assert "\u5443" not in cleaned
+    assert "\u53d1\u5e03\u8303\u56f4" in cleaned
+
+
+def test_postprocess_removes_en_fillers() -> None:
+    raw = "um we should, uh, finalize release notes tomorrow."
+
+    cleaned = postprocess_rewrite_output(raw)
+
+    assert "um " not in cleaned.lower()
+    assert "uh" not in cleaned.lower()
+    assert "finalize release notes" in cleaned.lower()

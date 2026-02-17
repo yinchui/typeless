@@ -11,6 +11,7 @@ DecisionType = Literal[
     "explicit_template",
     "auto_template",
     "low_confidence_fallback_light",
+    "language_mismatch_fallback_light",
     "template_error_fallback_light",
 ]
 

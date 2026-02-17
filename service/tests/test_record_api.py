@@ -19,6 +19,11 @@ def test_record_start_and_stop_returns_voice_and_final_text(client, monkeypatch)
     monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
     monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
     monkeypatch.setattr(
+        "voice_text_organizer.main.route_rewrite",
+        lambda *_args, **_kwargs: "spoken words",
+        raising=False,
+    )
+    monkeypatch.setattr(
         "voice_text_organizer.main.classify_template",
         lambda *_args, **_kwargs: TemplateClassification(
             template="meeting_minutes",
@@ -128,7 +133,7 @@ def test_record_stop_explicit_task_command_uses_rewrite(client, monkeypatch) -> 
 
     def fake_route(*_args, **_kwargs):
         observed["called"] = True
-        return "- Prepare release notes\n- Assign owner"
+        return "- 整理发布说明\n- 指定负责人"
 
     monkeypatch.setattr("voice_text_organizer.main.route_rewrite", fake_route, raising=False)
 
@@ -139,7 +144,7 @@ def test_record_stop_explicit_task_command_uses_rewrite(client, monkeypatch) -> 
     stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
     assert stop.status_code == 200
     assert observed["called"] is True
-    assert "Prepare release notes" in stop.json()["final_text"]
+    assert "指定负责人" in stop.json()["final_text"]
 
 
 def test_record_stop_classifier_low_confidence_falls_back_light_edit(client, monkeypatch) -> None:
@@ -162,11 +167,13 @@ def test_record_stop_classifier_low_confidence_falls_back_light_edit(client, mon
         ),
         raising=False,
     )
-    monkeypatch.setattr(
-        "voice_text_organizer.main.route_rewrite",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("rewrite should not be called")),
-        raising=False,
-    )
+    observed = {"called": False}
+
+    def fake_route(*_args, **_kwargs):
+        observed["called"] = True
+        return "Sync with design team tomorrow."
+
+    monkeypatch.setattr("voice_text_organizer.main.route_rewrite", fake_route, raising=False)
 
     start = client.post("/v1/record/start", json={})
     assert start.status_code == 200
@@ -175,7 +182,8 @@ def test_record_stop_classifier_low_confidence_falls_back_light_edit(client, mon
     stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
     assert stop.status_code == 200
     assert stop.json()["voice_text"] == voice_text
-    assert stop.json()["final_text"] == voice_text
+    assert observed["called"] is True
+    assert stop.json()["final_text"] == "Sync with design team tomorrow."
 
 
 def test_record_stop_template_rewrite_error_falls_back_to_light_edit(client, monkeypatch) -> None:
@@ -212,3 +220,52 @@ def test_record_stop_template_rewrite_error_falls_back_to_light_edit(client, mon
     assert stop.status_code == 200
     assert stop.json()["voice_text"] == voice_text
     assert stop.json()["final_text"] == voice_text
+
+
+def test_record_stop_default_language_hint_prefers_chinese(client, monkeypatch) -> None:
+    observed: dict[str, str] = {}
+
+    def fake_transcribe(_path, language_hint="auto"):
+        observed["language_hint"] = language_hint
+        return "中文转录结果"
+
+    monkeypatch.setattr("voice_text_organizer.main.transcribe_audio", fake_transcribe, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.route_rewrite", lambda *_args, **_kwargs: "中文转录结果", raising=False)
+
+    start = client.post("/v1/record/start", json={})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
+    assert stop.status_code == 200
+    assert observed["language_hint"] == "zh"
+
+
+def test_record_stop_honors_explicit_language_hint(client, monkeypatch) -> None:
+    observed: dict[str, str] = {}
+
+    def fake_transcribe(_path, language_hint="auto"):
+        observed["language_hint"] = language_hint
+        return "english transcript"
+
+    monkeypatch.setattr("voice_text_organizer.main.transcribe_audio", fake_transcribe, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.route_rewrite", lambda *_args, **_kwargs: "english transcript", raising=False)
+
+    start = client.post("/v1/record/start", json={})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post(
+        "/v1/record/stop",
+        json={"session_id": session_id, "mode": "cloud", "language_hint": "en"},
+    )
+    assert stop.status_code == 200
+    assert observed["language_hint"] == "en"

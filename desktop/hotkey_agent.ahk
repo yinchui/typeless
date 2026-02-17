@@ -4,6 +4,7 @@
 
 global baseUrl := "http://127.0.0.1:8775"
 global defaultMode := "cloud"
+global defaultLanguageHint := "zh"
 global httpResolveTimeoutMs := 10000
 global httpConnectTimeoutMs := 10000
 global httpSendTimeoutMs := 120000
@@ -1126,10 +1127,11 @@ ApiStartRecord(selectedText, existingText := "")
 
 ApiStopRecord(sessionId)
 {
-    global defaultMode
+    global defaultMode, defaultLanguageHint
     q := Chr(34)
     payload := "{" . q . "session_id" . q . ":" . q . JsonEscape(sessionId) . q
-    payload .= "," . q . "mode" . q . ":" . q . JsonEscape(defaultMode) . q . "}"
+    payload .= "," . q . "mode" . q . ":" . q . JsonEscape(defaultMode) . q
+    payload .= "," . q . "language_hint" . q . ":" . q . JsonEscape(defaultLanguageHint) . q . "}"
     response := HttpPost("/v1/record/stop", payload)
 
     result := Map()

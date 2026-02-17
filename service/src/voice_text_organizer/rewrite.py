@@ -10,7 +10,9 @@ BASE_SYSTEM_RULES = (
     "Rewrite spoken input into clear, structured text. "
     "Remove filler words and redundancy, preserve intent and details, "
     "and do not add facts. "
-    "Keep the same language as the input unless translation is requested. "
+    "Strictly keep the same primary language as the input unless translation is requested. "
+    "Do not translate Chinese speech into English. "
+    "Keep occasional foreign proper nouns as-is. "
     "Use real line breaks for paragraph separation. "
     "Use bullet points when listing multiple items or steps."
 )
@@ -51,6 +53,22 @@ EMOJI_RE = re.compile(
     "]",
     re.UNICODE,
 )
+FILLER_TOKEN_RE = re.compile(
+    r"(?:(?<=^)|(?<=[\s,\u3002\uff0c\uff01\uff1f\uff1b.!?;:]))"
+    r"(?:\u55ef+|\u5443+|\u989d+|\u554a+|\u54ce+|\u5509+|um+|uh+)"
+    r"(?=(?:$|[\s,\u3002\uff0c\uff01\uff1f\uff1b.!?;:]))",
+    re.IGNORECASE,
+)
+FILLER_INTERJECTION_BEFORE_PUNCT_RE = re.compile(
+    r"(?:\u55ef+|\u5443+|\u989d+|\u554a+|\u54ce+|\u5509+|um+|uh+)\s*(?=[,\u3002\uff0c\uff01\uff1f\uff1b.!?;:])",
+    re.IGNORECASE,
+)
+FILLER_PHRASE_RE = re.compile(
+    r"(?:(?<=^)|(?<=[\s,\u3002\uff0c\uff01\uff1f\uff1b.!?;:]))"
+    r"(?:\u90a3\u4e2a|\u5c31\u662f|you know|i mean)"
+    r"(?=(?:$|[\s,\u3002\uff0c\uff01\uff1f\uff1b.!?;:]))",
+    re.IGNORECASE,
+)
 
 
 def strip_emoji(text: str) -> str:
@@ -69,6 +87,22 @@ def _normalize_whitespace(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _strip_filler_words(text: str) -> str:
+    cleaned = text
+    for _ in range(2):
+        before = cleaned
+        cleaned = FILLER_INTERJECTION_BEFORE_PUNCT_RE.sub("", cleaned)
+        cleaned = FILLER_TOKEN_RE.sub(" ", cleaned)
+        cleaned = FILLER_PHRASE_RE.sub(" ", cleaned)
+        cleaned = re.sub(r"\s+([,\u3002\uff0c\uff01\uff1f\uff1b.!?;:])", r"\1", cleaned)
+        cleaned = re.sub(r"([,\uff0c]){2,}", r"\1", cleaned)
+        cleaned = re.sub(r"(^|[\n])\s*[,，;；:：]\s*", r"\1", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+        if cleaned == before:
+            break
+    return cleaned
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -127,6 +161,7 @@ def _should_use_bullets(block: str, sentences: list[str]) -> bool:
 
 def postprocess_rewrite_output(text: str) -> str:
     cleaned = _normalize_whitespace(text)
+    cleaned = _normalize_whitespace(_strip_filler_words(cleaned))
     if not cleaned:
         return cleaned
 

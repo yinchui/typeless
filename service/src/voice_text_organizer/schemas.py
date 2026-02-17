@@ -27,7 +27,7 @@ class StopSessionResponse(BaseModel):
 class StopRecordRequest(BaseModel):
     session_id: str
     mode: str | None = None
-    language_hint: str = "auto"
+    language_hint: str = "zh"
 
 
 class StopRecordResponse(BaseModel):

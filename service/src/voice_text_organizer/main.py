@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import wave
 from typing import Any
@@ -56,6 +57,8 @@ from voice_text_organizer.version_check import resolve_version
 LEGACY_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
 logger = logging.getLogger(__name__)
 DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD = 0.72
+_CJK_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
+_LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 
 
 def _migrate_legacy_runtime_files() -> None:
@@ -287,6 +290,17 @@ def _log_template_decision(
     )
 
 
+def _is_language_drift_to_english(source_text: str, rewritten_text: str) -> bool:
+    source_cjk = len(_CJK_CHAR_RE.findall(source_text))
+    source_latin = len(_LATIN_CHAR_RE.findall(source_text))
+    rewritten_cjk = len(_CJK_CHAR_RE.findall(rewritten_text))
+    rewritten_latin = len(_LATIN_CHAR_RE.findall(rewritten_text))
+
+    source_is_chinese_primary = source_cjk >= 4 and source_cjk >= source_latin
+    rewritten_is_english_primary = rewritten_latin >= 12 and rewritten_latin >= (rewritten_cjk * 4)
+    return source_is_chinese_primary and rewritten_is_english_primary
+
+
 def _resolve_final_text(
     *,
     endpoint: str,
@@ -305,7 +319,9 @@ def _resolve_final_text(
     active_template = decision.template
     fallback = False
 
-    if decision.template == "light_edit":
+    has_selected_text = bool((selected_text or "").strip())
+    # Keep selected-text safety: non-translation commands should not rewrite the selected content.
+    if decision.template == "light_edit" and has_selected_text:
         final_text = postprocess_rewrite_output(voice_text)
     else:
         try:
@@ -322,7 +338,21 @@ def _resolve_final_text(
                 default_mode=mode or settings.default_mode,
                 fallback=settings.fallback_to_local_on_cloud_error,
             )
-            final_text = postprocess_rewrite_output(rewritten_text)
+            if decision.template != "translation" and _is_language_drift_to_english(
+                voice_text, rewritten_text
+            ):
+                fallback = True
+                active_decision_type = "language_mismatch_fallback_light"
+                active_template = "light_edit"
+                logger.warning(
+                    "template_fallback endpoint=%s stage=language_drift template=%s decision_type=%s",
+                    endpoint,
+                    decision.template,
+                    decision.decision_type,
+                )
+                final_text = postprocess_rewrite_output(voice_text)
+            else:
+                final_text = postprocess_rewrite_output(rewritten_text)
         except Exception:
             fallback = True
             active_decision_type = "template_error_fallback_light"
