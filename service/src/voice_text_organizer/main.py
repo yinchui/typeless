@@ -97,6 +97,12 @@ def _load_runtime_settings(path: Path | None = None) -> dict[str, Any]:
         result["default_mode"] = payload["default_mode"]
     if payload.get("update_channel") in ("stable", "beta"):
         result["update_channel"] = payload["update_channel"]
+    if "auto_template_confidence_threshold" in payload:
+        value = payload["auto_template_confidence_threshold"]
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+            if 0.0 <= numeric <= 1.0:
+                result["auto_template_confidence_threshold"] = numeric
     if "siliconflow_api_key" in payload:
         value = payload["siliconflow_api_key"]
         if value is None:
@@ -133,6 +139,7 @@ def _build_settings_view() -> SettingsViewResponse:
     return SettingsViewResponse(
         default_mode=settings.default_mode,
         update_channel=settings.update_channel,
+        auto_template_confidence_threshold=settings.auto_template_confidence_threshold,
         api_key_configured=bool(settings.siliconflow_api_key),
         api_key_masked=_mask_api_key(settings.siliconflow_api_key),
     )
@@ -142,6 +149,7 @@ def _persist_current_settings(extra_runtime_fields: dict[str, Any] | None = None
     payload: dict[str, Any] = {
         "default_mode": settings.default_mode,
         "update_channel": settings.update_channel,
+        "auto_template_confidence_threshold": settings.auto_template_confidence_threshold,
         "siliconflow_api_key": settings.siliconflow_api_key,
     }
     if extra_runtime_fields:
@@ -162,6 +170,10 @@ def _load_settings() -> Settings:
         current.default_mode = runtime_overrides["default_mode"]  # type: ignore[assignment]
     if runtime_overrides.get("update_channel") in ("stable", "beta"):
         current.update_channel = runtime_overrides["update_channel"]  # type: ignore[assignment]
+    if "auto_template_confidence_threshold" in runtime_overrides:
+        current.auto_template_confidence_threshold = float(  # type: ignore[assignment]
+            runtime_overrides["auto_template_confidence_threshold"]
+        )
     if "siliconflow_api_key" in runtime_overrides:
         current.siliconflow_api_key = runtime_overrides["siliconflow_api_key"]
     return current
@@ -209,7 +221,7 @@ def _wav_duration_seconds(path: Path) -> int:
 
 
 def _current_template_threshold() -> float:
-    threshold = getattr(settings, "auto_template_confidence_threshold", DEFAULT_AUTO_TEMPLATE_CONFIDENCE_THRESHOLD)
+    threshold = settings.auto_template_confidence_threshold
     try:
         value = float(threshold)
     except (TypeError, ValueError):
@@ -354,6 +366,9 @@ def update_settings(payload: SettingsUpdateRequest) -> SettingsViewResponse:
 
     if payload.update_channel is not None:
         settings.update_channel = payload.update_channel
+
+    if payload.auto_template_confidence_threshold is not None:
+        settings.auto_template_confidence_threshold = payload.auto_template_confidence_threshold
 
     if payload.api_key is not None:
         cleaned = payload.api_key.strip()

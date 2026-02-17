@@ -68,6 +68,7 @@ class DashboardTermDeleteResponse(BaseModel):
 class SettingsViewResponse(BaseModel):
     default_mode: Literal["cloud", "local"]
     update_channel: Literal["stable", "beta"] = "stable"
+    auto_template_confidence_threshold: float
     api_key_configured: bool
     api_key_masked: str | None = None
 
@@ -75,6 +76,7 @@ class SettingsViewResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     default_mode: Literal["cloud", "local"] | None = None
     update_channel: Literal["stable", "beta"] | None = None
+    auto_template_confidence_threshold: float | None = None
     api_key: str | None = None
 
 
