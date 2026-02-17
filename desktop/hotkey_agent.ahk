@@ -124,9 +124,8 @@ StartRecordingSession()
         targetWindowId := WinExist("A")
         selectedText := GetSelectedTextSafe()
         replaceSelectionOnInsert := (selectedText != "")
+        ; Keep caret stable for in-place insertion. Full-text probing uses Ctrl+A and can move caret.
         existingText := ""
-        if (selectedText = "")
-            existingText := GetFullTextSafe()
         sessionId := ApiStartRecord(selectedText, existingText)
         if (sessionId = "")
         {
@@ -1059,12 +1058,6 @@ InsertText(text, replaceSelection := false)
 
     ; Give the foreground app a brief moment to regain focus after hotkey release.
     Sleep(80)
-    if (!replaceSelection)
-    {
-        ; For normal append mode, clear any auto-selection to avoid replacing content.
-        Send("{End}")
-        Sleep(50)
-    }
 
     clipSaved := ClipboardAll()
     try
