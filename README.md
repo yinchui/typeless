@@ -147,3 +147,31 @@ Translation whitelist (v1):
 - `translate to chinese` / `translate to english`
 
 If whitelist rewrite fails, the service falls back to transcription output.
+
+## Adaptive Template Routing (v0.1.9+)
+
+The backend now uses adaptive template routing with conservative command matching:
+
+- Base output is `light_edit` (readable text with punctuation and paragraph cleanup).
+- If selected text exists and the spoken command matches translation whitelist, translation rewrite is used first.
+- Explicit template commands are supported with fuzzy matching, but only when both action and template intent are detected.
+- If no explicit command is detected, classifier routing is used.
+- If classifier confidence is below threshold, output falls back to `light_edit`.
+- If template rewrite fails at runtime, output falls back to `light_edit`.
+
+Supported templates (v1):
+
+- `light_edit`
+- `meeting_minutes`
+- `task_list`
+- `translation`
+
+Settings:
+
+- `auto_template_confidence_threshold` (default `0.72`) is available via `GET /v1/settings` and `PUT /v1/settings`.
+
+Translation whitelist examples:
+
+- `翻译成中文` / `翻成中文` / `译成中文`
+- `翻译成英文` / `翻成英文` / `译成英文`
+- `translate to chinese` / `translate to english`
