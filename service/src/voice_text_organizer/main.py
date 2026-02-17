@@ -14,6 +14,7 @@ from voice_text_organizer.asr import normalize_asr_text, transcribe_with_silicon
 from voice_text_organizer.audio import AudioRecorder
 from voice_text_organizer.config import Settings
 from voice_text_organizer.history_store import HistoryStore
+from voice_text_organizer.policy import decide_processing_mode
 from voice_text_organizer.providers.ollama import rewrite_with_ollama
 from voice_text_organizer.providers.siliconflow import rewrite_with_siliconflow
 from voice_text_organizer.rewrite import build_prompt, postprocess_rewrite_output
@@ -412,11 +413,13 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
         if not voice_text:
             raise HTTPException(status_code=422, detail="no speech detected")
 
-        if _should_bypass_rewrite(
+        decision_mode = decide_processing_mode(
             voice_text,
             selected_text=session.selected_text,
             existing_text=session.existing_text,
-        ):
+        )
+
+        if decision_mode == "transcribe_only":
             final_text = postprocess_rewrite_output(voice_text)
         else:
             messages = build_prompt(
