@@ -7,7 +7,7 @@ def test_e2e_session_flow_with_mocked_dependencies(client, monkeypatch) -> None:
 
     stop = client.post(
         "/v1/session/stop",
-        json={"session_id": session_id, "voice_text": "new idea", "mode": "cloud"},
+        json={"session_id": session_id, "voice_text": "translate to chinese", "mode": "cloud"},
     )
     assert stop.status_code == 200
     assert stop.json()["final_text"] == "clean result"

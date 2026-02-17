@@ -131,3 +131,19 @@ GitHub Release：
 - 切勿提交 API 密钥。
 - 如果密钥泄露，请立即撤销并更换。
 - 当前内测版未做代码签名，首次安装可能出现 SmartScreen 提示。
+
+## Transcription-First Behavior (v0.1.8+)
+
+The backend now enforces a transcription-first policy:
+
+- If there is no selected text, output is always the spoken transcription.
+- If there is selected text, only translation whitelist commands trigger rewrite.
+- Non-whitelist commands with selected text return spoken transcription text.
+
+Translation whitelist (v1):
+
+- `翻译成中文` / `翻成中文` / `译成中文` / `英译中`
+- `翻译成英文` / `翻成英文` / `译成英文` / `中译英`
+- `translate to chinese` / `translate to english`
+
+If whitelist rewrite fails, the service falls back to transcription output.
