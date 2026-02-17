@@ -8,11 +8,7 @@ function Resolve-RuntimeDir {
         return $env:VTO_RUNTIME_DIR
     }
 
-    if ($env:LOCALAPPDATA) {
-        return (Join-Path $env:LOCALAPPDATA "Typeless\runtime")
-    }
-
-    return (Join-Path $repoRoot "service\runtime")
+    return (Join-Path $repoRoot "runtime")
 }
 
 $runtimeDir = Resolve-RuntimeDir

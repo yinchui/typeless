@@ -23,11 +23,15 @@ global waveformTimerMs := 70
 global runtimeDir := EnvGet("VTO_RUNTIME_DIR")
 if (runtimeDir = "")
 {
-    localAppData := EnvGet("LOCALAPPDATA")
-    if (localAppData != "")
-        runtimeDir := localAppData . "\Typeless\runtime"
+    SplitPath(A_ScriptDir, &scriptDirName)
+    if (StrLower(scriptDirName) = "desktop")
+        runtimeDir := A_ScriptDir . "\..\runtime"
     else
-        runtimeDir := A_ScriptDir . "\..\service\runtime"
+        runtimeDir := A_ScriptDir . "\runtime"
+}
+if (runtimeDir != "")
+{
+    EnvSet("VTO_RUNTIME_DIR", runtimeDir)
 }
 global logFile := runtimeDir . "\hotkey.log"
 

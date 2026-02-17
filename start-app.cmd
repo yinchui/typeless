@@ -3,6 +3,9 @@ setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "RUNTIME_DIR=%ROOT_DIR%\runtime"
+set "VTO_RUNTIME_DIR=%RUNTIME_DIR%"
+if not exist "%RUNTIME_DIR%" mkdir "%RUNTIME_DIR%" >nul 2>nul
 
 set "RUN_SERVICE_PS1=%ROOT_DIR%\scripts\run-service.ps1"
 set "HOTKEY_AHK=%ROOT_DIR%\desktop\hotkey_agent.ahk"
@@ -61,6 +64,7 @@ if "%SERVICE_UP%"=="200" (
 )
 echo - Service script: %RUN_SERVICE_PS1%
 echo - Hotkey script: %HOTKEY_AHK%
+echo - Runtime dir: %VTO_RUNTIME_DIR%
 exit /b 0
 
 :stop_conflicting_typeless_backend
@@ -111,6 +115,7 @@ if defined AHK_EXE (
 )
 if "%ERR%"=="0" (
     echo [OK] One-click launcher is ready.
+    echo [OK] Runtime dir: %VTO_RUNTIME_DIR%
 ) else (
     echo [ERROR] One-click launcher prerequisites not met.
 )
