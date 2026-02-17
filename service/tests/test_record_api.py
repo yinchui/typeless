@@ -180,3 +180,29 @@ def test_record_stop_selected_text_non_whitelist_is_transcription_only(client, m
     assert stop.status_code == 200
     assert stop.json()["voice_text"] == voice_text
     assert stop.json()["final_text"] == voice_text
+
+def test_record_stop_whitelist_rewrite_error_falls_back_to_transcription(client, monkeypatch) -> None:
+    voice_text = "翻译成中文"
+    monkeypatch.setattr(
+        "voice_text_organizer.main.transcribe_audio",
+        lambda _path, language_hint="auto": voice_text,
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+    monkeypatch.setattr(
+        "voice_text_organizer.main.route_rewrite",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("rewrite backend down")),
+        raising=False,
+    )
+
+    start = client.post("/v1/record/start", json={"selected_text": "hello world"})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
+    assert stop.status_code == 200
+    assert stop.json()["voice_text"] == voice_text
+    assert stop.json()["final_text"] == voice_text

@@ -86,3 +86,23 @@ def test_session_stop_selected_text_translate_command_uses_rewrite(monkeypatch) 
     assert stop_response.status_code == 200
     assert observed["called"] is True
     assert stop_response.json()["final_text"] == "你好，世界"
+
+def test_session_stop_whitelist_rewrite_error_falls_back_to_transcription(monkeypatch) -> None:
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        "voice_text_organizer.main.route_rewrite",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("rewrite backend down")),
+    )
+
+    start_response = client.post("/v1/session/start", json={"selected_text": "hello world"})
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session_id"]
+
+    voice_text = "翻译成中文"
+    stop_response = client.post(
+        "/v1/session/stop",
+        json={"session_id": session_id, "voice_text": voice_text, "mode": "cloud"},
+    )
+    assert stop_response.status_code == 200
+    assert stop_response.json()["final_text"] == voice_text

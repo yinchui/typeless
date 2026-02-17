@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -48,6 +49,7 @@ from voice_text_organizer.version import CURRENT_VERSION
 from voice_text_organizer.version_check import resolve_version
 
 LEGACY_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
+logger = logging.getLogger(__name__)
 
 
 def _migrate_legacy_runtime_files() -> None:
@@ -229,6 +231,15 @@ def _should_bypass_rewrite(voice_text: str, *, selected_text: str | None, existi
     return _is_short_plain_utterance(voice_text)
 
 
+def _log_policy_decision(endpoint: str, *, decision_mode: str) -> None:
+    logger.info(
+        "policy_decision endpoint=%s decision_mode=%s whitelist_hit=%s",
+        endpoint,
+        decision_mode,
+        "true" if decision_mode == "selected_whitelist_rewrite" else "false",
+    )
+
+
 app = FastAPI()
 
 @app.get("/health")
@@ -371,23 +382,32 @@ def stop_session(payload: StopSessionRequest) -> StopSessionResponse:
         selected_text=session.selected_text,
         existing_text=session.existing_text,
     )
+    _log_policy_decision("session_stop", decision_mode=decision_mode)
 
     if decision_mode == "transcribe_only":
         final_text = postprocess_rewrite_output(voice_text)
     else:
-        messages = build_prompt(
-            voice_text,
-            selected_text=session.selected_text,
-            existing_text=session.existing_text,
-        )
-        final_text = route_rewrite(
-            messages,
-            cloud_fn=cloud_provider,
-            local_fn=local_provider,
-            default_mode=payload.mode or settings.default_mode,
-            fallback=settings.fallback_to_local_on_cloud_error,
-        )
-        final_text = postprocess_rewrite_output(final_text)
+        try:
+            messages = build_prompt(
+                voice_text,
+                selected_text=session.selected_text,
+                existing_text=session.existing_text,
+            )
+            final_text = route_rewrite(
+                messages,
+                cloud_fn=cloud_provider,
+                local_fn=local_provider,
+                default_mode=payload.mode or settings.default_mode,
+                fallback=settings.fallback_to_local_on_cloud_error,
+            )
+            final_text = postprocess_rewrite_output(final_text)
+        except Exception:
+            logger.warning(
+                "policy_fallback endpoint=session_stop stage=rewrite decision_mode=%s",
+                decision_mode,
+                exc_info=True,
+            )
+            final_text = postprocess_rewrite_output(voice_text)
     return StopSessionResponse(final_text=final_text)
 
 
@@ -420,23 +440,32 @@ def stop_record(payload: StopRecordRequest) -> StopRecordResponse:
             selected_text=session.selected_text,
             existing_text=session.existing_text,
         )
+        _log_policy_decision("record_stop", decision_mode=decision_mode)
 
         if decision_mode == "transcribe_only":
             final_text = postprocess_rewrite_output(voice_text)
         else:
-            messages = build_prompt(
-                voice_text,
-                selected_text=session.selected_text,
-                existing_text=session.existing_text,
-            )
-            final_text = route_rewrite(
-                messages,
-                cloud_fn=cloud_provider,
-                local_fn=local_provider,
-                default_mode=payload.mode or settings.default_mode,
-                fallback=settings.fallback_to_local_on_cloud_error,
-            )
-            final_text = postprocess_rewrite_output(final_text)
+            try:
+                messages = build_prompt(
+                    voice_text,
+                    selected_text=session.selected_text,
+                    existing_text=session.existing_text,
+                )
+                final_text = route_rewrite(
+                    messages,
+                    cloud_fn=cloud_provider,
+                    local_fn=local_provider,
+                    default_mode=payload.mode or settings.default_mode,
+                    fallback=settings.fallback_to_local_on_cloud_error,
+                )
+                final_text = postprocess_rewrite_output(final_text)
+            except Exception:
+                logger.warning(
+                    "policy_fallback endpoint=record_stop stage=rewrite decision_mode=%s",
+                    decision_mode,
+                    exc_info=True,
+                )
+                final_text = postprocess_rewrite_output(voice_text)
         history_store.record_transcript(
             mode=payload.mode or settings.default_mode,
             voice_text=voice_text,
