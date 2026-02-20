@@ -12,6 +12,11 @@ def test_get_settings_returns_masked_key(client, monkeypatch) -> None:
         raising=False,
     )
     monkeypatch.setattr(
+        "voice_text_organizer.main.settings.personalized_acoustic_enabled",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
         "voice_text_organizer.main.settings.siliconflow_api_key",
         "sk-example-12345678",
         raising=False,
@@ -23,6 +28,7 @@ def test_get_settings_returns_masked_key(client, monkeypatch) -> None:
     assert payload["default_mode"] == "cloud"
     assert payload["update_channel"] == "stable"
     assert payload["auto_template_confidence_threshold"] == 0.72
+    assert payload["personalized_acoustic_enabled"] is True
     assert payload["api_key_configured"] is True
     assert payload["api_key_masked"] == "****5678"
 
@@ -37,6 +43,11 @@ def test_put_settings_persists_and_applies_runtime(client, monkeypatch, tmp_path
         raising=False,
     )
     monkeypatch.setattr(
+        "voice_text_organizer.main.settings.personalized_acoustic_enabled",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
         "voice_text_organizer.main.settings.siliconflow_api_key",
         None,
         raising=False,
@@ -47,6 +58,7 @@ def test_put_settings_persists_and_applies_runtime(client, monkeypatch, tmp_path
         json={
             "default_mode": "cloud",
             "auto_template_confidence_threshold": 0.81,
+            "personalized_acoustic_enabled": False,
             "api_key": "sk-new-abcdefg1234",
         },
     )
@@ -55,6 +67,7 @@ def test_put_settings_persists_and_applies_runtime(client, monkeypatch, tmp_path
     assert payload["default_mode"] == "cloud"
     assert payload["update_channel"] == "stable"
     assert payload["auto_template_confidence_threshold"] == 0.81
+    assert payload["personalized_acoustic_enabled"] is False
     assert payload["api_key_configured"] is True
     assert payload["api_key_masked"] == "****1234"
 
@@ -63,4 +76,5 @@ def test_put_settings_persists_and_applies_runtime(client, monkeypatch, tmp_path
     assert saved["default_mode"] == "cloud"
     assert saved["update_channel"] == "stable"
     assert saved["auto_template_confidence_threshold"] == 0.81
+    assert saved["personalized_acoustic_enabled"] is False
     assert saved["siliconflow_api_key"] == "sk-new-abcdefg1234"

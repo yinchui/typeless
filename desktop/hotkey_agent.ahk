@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 #Warn
 
@@ -39,6 +39,8 @@ global settingsGui := 0
 global settingsStatusText := 0
 global settingsApiKeyEdit := 0
 global settingsModeDDL := 0
+global settingsPersonalizedCheck := 0
+global personalizedAcousticEnabled := true
 
 global dashboardGui := 0
 global dashboardMainBg := 0
@@ -54,10 +56,7 @@ global dashboardMetricSpeed := 0
 global dashboardDictSearch := 0
 global dashboardDictList := 0
 global dashboardDictDeleteBtn := 0
-global dashboardFilterAll := 0
-global dashboardFilterAuto := 0
-global dashboardFilterManual := 0
-global dashboardFilterMode := "all"
+global dashboardDictSamplesBtn := 0
 global dashboardWordEntries := []
 global dashboardRecordingStartTick := 0
 global dashboardTotalSeconds := 0
@@ -71,6 +70,18 @@ global latestReleaseVersion := ""
 global latestUpdateCheckAt := ""
 global hasAppUpdate := false
 global updateTipShownVersion := ""
+
+global termSampleGui := 0
+global termSampleTermText := 0
+global termSampleStatusText := 0
+global termSampleList := 0
+global termSampleStartBtn := 0
+global termSampleDeleteBtn := 0
+global termSamplePlayBtn := 0
+global termSampleCurrentTerm := ""
+global termSampleRecordingSessionId := ""
+global termSampleRecordingTerm := ""
+global termSampleBusy := false
 
 InstallKeybdHook()
 TraySetIcon("shell32.dll", 44)
@@ -337,12 +348,14 @@ ExitAgent(*)
 
 SyncModeFromServer()
 {
-    global defaultMode
+    global defaultMode, personalizedAcousticEnabled
     try
     {
         current := ApiGetSettings()
         if (current.Has("default_mode") && current["default_mode"] != "")
             defaultMode := current["default_mode"]
+        if (current.Has("personalized_acoustic_enabled"))
+            personalizedAcousticEnabled := current["personalized_acoustic_enabled"]
     }
     catch
     {
@@ -364,7 +377,7 @@ CheckForAppUpdate()
         if (hasAppUpdate && latestReleaseVersion != "" && updateTipShownVersion != latestReleaseVersion)
         {
             updateTipShownVersion := latestReleaseVersion
-            TrayTip("Voice Text Organizer", "发现新版本 v" . latestReleaseVersion . "，可在面板中点击更新入口。", 3)
+            TrayTip("Voice Text Organizer", "New version found: v" . latestReleaseVersion, 3)
             LogLine("update available: " . latestReleaseVersion . ", url=" . appReleaseUrl)
         }
     }
@@ -402,7 +415,7 @@ OnDashboardUpdateLinkClick(*)
 
 OpenSettingsDialog(*)
 {
-    global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL
+    global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL, settingsPersonalizedCheck
     EnsureSettingsGui()
 
     try
@@ -422,13 +435,14 @@ OpenSettingsDialog(*)
         settingsModeDDL.Choose(2)
     else
         settingsModeDDL.Choose(1)
+    settingsPersonalizedCheck.Value := current["personalized_acoustic_enabled"] ? 1 : 0
 
     settingsGui.Show("AutoSize")
 }
 
 EnsureSettingsGui()
 {
-    global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL
+    global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL, settingsPersonalizedCheck
     if (IsObject(settingsGui))
         return
 
@@ -444,6 +458,9 @@ EnsureSettingsGui()
     settingsGui.AddText("xm y+12", "Default mode")
     settingsModeDDL := settingsGui.AddDropDownList("xm w140", ["cloud", "local"])
 
+    settingsPersonalizedCheck := settingsGui.AddCheckBox("xm y+12", "Enable personalized acoustic enhancement")
+    settingsPersonalizedCheck.Value := 1
+
     saveBtn := settingsGui.AddButton("xm y+18 w90", "Save")
     cancelBtn := settingsGui.AddButton("x+10 yp w90", "Cancel")
 
@@ -454,16 +471,18 @@ EnsureSettingsGui()
 
 SaveSettingsFromDialog(*)
 {
-    global defaultMode, settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL
+    global defaultMode, personalizedAcousticEnabled
+    global settingsGui, settingsStatusText, settingsApiKeyEdit, settingsModeDDL, settingsPersonalizedCheck
 
     apiKey := Trim(settingsApiKeyEdit.Value)
     mode := settingsModeDDL.Text
     if (mode = "")
         mode := "cloud"
+    personalizedEnabled := settingsPersonalizedCheck.Value = 1
 
     try
     {
-        updated := ApiUpdateSettings(apiKey, mode)
+        updated := ApiUpdateSettings(apiKey, mode, personalizedEnabled)
     }
     catch Error as err
     {
@@ -472,6 +491,7 @@ SaveSettingsFromDialog(*)
     }
 
     defaultMode := updated["default_mode"]
+    personalizedAcousticEnabled := updated["personalized_acoustic_enabled"]
     status := updated["api_key_configured"] ? "Configured " . updated["api_key_masked"] : "Not configured"
     settingsStatusText.Value := status
     settingsApiKeyEdit.Value := ""
@@ -511,8 +531,7 @@ EnsureDashboardGui()
     global dashboardNavHome, dashboardNavDict
     global dashboardMetricPersonality, dashboardMetricTotalTime, dashboardMetricChars
     global dashboardMetricSaved, dashboardMetricSpeed
-    global dashboardDictSearch, dashboardDictList, dashboardDictDeleteBtn
-    global dashboardFilterAll, dashboardFilterAuto, dashboardFilterManual
+    global dashboardDictSearch, dashboardDictList, dashboardDictDeleteBtn, dashboardDictSamplesBtn
     global dashboardUpdateLink
 
     if (IsObject(dashboardGui))
@@ -553,7 +572,7 @@ EnsureDashboardGui()
     homeTitle.SetFont("s26 w700")
     AddDashboardControl("home", homeTitle)
 
-    homeSubTitle := dashboardGui.AddText("x306 y106 w760 h24 c666666 +BackgroundTrans", "按 Alt + 空格 键，开始/结束录音并自动插入语音文本。")
+    homeSubTitle := dashboardGui.AddText("x306 y106 w760 h24 c666666 +BackgroundTrans", "Press Alt + Space to start/stop recording and insert text.")
     homeSubTitle.SetFont("s11")
     AddDashboardControl("home", homeSubTitle)
 
@@ -570,7 +589,7 @@ EnsureDashboardGui()
     dashboardMetricPersonality := dashboardGui.AddText("x350 y196 w140 h56 c111111 +BackgroundTrans", "0%")
     dashboardMetricPersonality.SetFont("s40 w700")
     AddDashboardControl("home", dashboardMetricPersonality)
-    leftLabel := dashboardGui.AddText("x350 y260 w220 h24 c6D6D6D +BackgroundTrans", "整体个性化")
+    leftLabel := dashboardGui.AddText("x350 y260 w220 h24 c6D6D6D +BackgroundTrans", "鏁翠綋涓€у寲")
     leftLabel.SetFont("s14")
     AddDashboardControl("home", leftLabel)
 
@@ -579,13 +598,13 @@ EnsureDashboardGui()
     dashboardMetricTotalTime := dashboardGui.AddText("x896 y186 w220 h36 c161616 +BackgroundTrans", "0 min")
     dashboardMetricTotalTime.SetFont("s22 w700")
     AddDashboardControl("home", dashboardMetricTotalTime)
-    cardTimeLabel := dashboardGui.AddText("x896 y226 w220 h22 c666666 +BackgroundTrans", "总口述时间")
+    cardTimeLabel := dashboardGui.AddText("x896 y226 w220 h22 c666666 +BackgroundTrans", "Total recording time")
     cardTimeLabel.SetFont("s11")
     AddDashboardControl("home", cardTimeLabel)
 
     cardCharsBg := dashboardGui.AddText("x1124 y166 w240 h104 BackgroundFFFFFF")
     AddDashboardControl("home", cardCharsBg)
-    dashboardMetricChars := dashboardGui.AddText("x1144 y186 w210 h36 c161616 +BackgroundTrans", "0 字")
+    dashboardMetricChars := dashboardGui.AddText("x1144 y186 w210 h36 c161616 +BackgroundTrans", "0 chars")
     dashboardMetricChars.SetFont("s22 w700")
     AddDashboardControl("home", dashboardMetricChars)
     cardCharsLabel := dashboardGui.AddText("x1144 y226 w210 h22 c666666 +BackgroundTrans", "口述字数")
@@ -603,7 +622,7 @@ EnsureDashboardGui()
 
     cardSpeedBg := dashboardGui.AddText("x1124 y280 w240 h104 BackgroundFFFFFF")
     AddDashboardControl("home", cardSpeedBg)
-    dashboardMetricSpeed := dashboardGui.AddText("x1144 y300 w210 h34 c161616 +BackgroundTrans", "0 每分钟字数")
+    dashboardMetricSpeed := dashboardGui.AddText("x1144 y300 w210 h34 c161616 +BackgroundTrans", "0 chars/min")
     dashboardMetricSpeed.SetFont("s18 w700")
     AddDashboardControl("home", dashboardMetricSpeed)
     cardSpeedLabel := dashboardGui.AddText("x1144 y338 w210 h22 c666666 +BackgroundTrans", "平均口述速度")
@@ -619,45 +638,35 @@ EnsureDashboardGui()
     dictNewWordBtn.OnEvent("Click", OnDashboardNewWordClick)
     AddDashboardControl("dict", dictNewWordBtn)
 
-    dashboardDictDeleteBtn := dashboardGui.AddText("x1148 y66 w96 h34 +0x100 +0x200 +Center BackgroundFFFFFF c1B1D22", "删除选中")
+    dashboardDictDeleteBtn := dashboardGui.AddText("x1148 y66 w96 h34 +0x100 +0x200 +Center BackgroundFFFFFF c1B1D22", "删除词条")
     dashboardDictDeleteBtn.SetFont("s10 w700")
     dashboardDictDeleteBtn.OnEvent("Click", OnDashboardDeleteSelectedClick)
     AddDashboardControl("dict", dashboardDictDeleteBtn)
 
-    dashboardFilterAll := dashboardGui.AddText("x306 y124 w66 h34 +0x100 +0x200 +Center BackgroundFFFFFF c171717", "所有")
-    dashboardFilterAll.SetFont("s11 w500")
-    dashboardFilterAll.OnEvent("Click", OnDashboardFilterAllClick)
-    AddDashboardControl("dict", dashboardFilterAll)
+    dashboardDictSamplesBtn := dashboardGui.AddText("x1038 y66 w96 h34 +0x100 +0x200 +Center BackgroundFFFFFF c1B1D22", "录音样本")
+    dashboardDictSamplesBtn.SetFont("s10 w700")
+    dashboardDictSamplesBtn.OnEvent("Click", OnDashboardOpenTermSamplesClick)
+    AddDashboardControl("dict", dashboardDictSamplesBtn)
 
-    dashboardFilterAuto := dashboardGui.AddText("x378 y124 w104 h34 +0x100 +0x200 +Center BackgroundE8E8EA c3B3B3B", "自动添加")
-    dashboardFilterAuto.SetFont("s11 w500")
-    dashboardFilterAuto.OnEvent("Click", OnDashboardFilterAutoClick)
-    AddDashboardControl("dict", dashboardFilterAuto)
-
-    dashboardFilterManual := dashboardGui.AddText("x486 y124 w104 h34 +0x100 +0x200 +Center BackgroundE8E8EA c3B3B3B", "手动添加")
-    dashboardFilterManual.SetFont("s11 w500")
-    dashboardFilterManual.OnEvent("Click", OnDashboardFilterManualClick)
-    AddDashboardControl("dict", dashboardFilterManual)
-
-    dashboardDictSearch := dashboardGui.AddEdit("x306 y172 w470 h36 -VScroll")
+    dashboardDictSearch := dashboardGui.AddEdit("x306 y124 w470 h36 -VScroll")
     dashboardDictSearch.SetFont("s11", "Microsoft YaHei UI")
     dashboardDictSearch.OnEvent("Change", OnDashboardSearchChange)
     AddDashboardControl("dict", dashboardDictSearch)
 
-    dictListBg := dashboardGui.AddText("x306 y220 w1056 h628 BackgroundFFFFFF")
+    dictListBg := dashboardGui.AddText("x306 y172 w1056 h676 BackgroundFFFFFF")
     AddDashboardControl("dict", dictListBg)
 
-    dashboardDictList := dashboardGui.AddListView("x318 y232 w1032 h604", ["词", "来源", "次数"])
+    dashboardDictList := dashboardGui.AddListView("x318 y184 w1032 h652", ["Term", "Samples", "Status"])
     dashboardDictList.SetFont("s11", "Microsoft YaHei UI")
     dashboardDictList.ModifyCol(1, 640)
-    dashboardDictList.ModifyCol(2, 220)
-    dashboardDictList.ModifyCol(3, 100)
+    dashboardDictList.ModifyCol(2, 120)
+    dashboardDictList.ModifyCol(3, 220)
+    dashboardDictList.OnEvent("DoubleClick", OnDashboardDictRowDoubleClick)
     AddDashboardControl("dict", dashboardDictList)
 
     dashboardGui.OnEvent("Close", HideDashboard)
     dashboardGui.OnEvent("Escape", HideDashboard)
     SetDashboardPage("home")
-    SetDashboardFilterMode("all")
 }
 
 AddDashboardControl(page, control)
@@ -727,9 +736,7 @@ TrackDashboardFinalText(text)
         return
 
     dashboardTotalChars += StrLen(text)
-    ExtractAutoDictionaryWords(text)
     RefreshDashboardHomeMetrics()
-    RefreshDashboardDictionaryList()
 }
 
 LoadDashboardDataFromServer()
@@ -773,7 +780,7 @@ RefreshDashboardHomeMetrics()
     speed := dashboardAvgCharsPerMinute
     if (speed < 0)
         speed := 0
-    dashboardMetricSpeed.Value := speed . " 每分钟字数"
+    dashboardMetricSpeed.Value := speed . " chars/min"
 
     profileScore := dashboardProfileScore
     if (profileScore < 0 || profileScore > 99)
@@ -803,42 +810,12 @@ FormatDashboardDuration(totalSeconds)
 FormatDashboardChars(totalChars)
 {
     if (totalChars < 1000)
-        return totalChars . " 字"
+        return totalChars . " chars"
 
     k := Round(totalChars / 1000.0, 1)
     if (Mod(k, 1) = 0)
         k := Round(k)
-    return k . "K 字"
-}
-
-ExtractAutoDictionaryWords(text)
-{
-    pos := 1
-    found := 0
-    while (found < 10)
-    {
-        matchPos := RegExMatch(text, "[\x{4E00}-\x{9FFF}]{2,8}", &m, pos)
-        if (!matchPos)
-            break
-        token := Trim(m[0])
-        pos := matchPos + StrLen(token)
-        if (StrLen(token) > 6)
-            continue
-        UpsertDictionaryEntry(token, "auto")
-        found += 1
-    }
-
-    pos := 1
-    while (found < 18)
-    {
-        matchPos := RegExMatch(text, "[A-Za-z][A-Za-z'-]{3,20}", &m, pos)
-        if (!matchPos)
-            break
-        token := Trim(m[0])
-        pos := matchPos + StrLen(token)
-        UpsertDictionaryEntry(token, "auto")
-        found += 1
-    }
+    return k . "K chars"
 }
 
 OnDashboardNewWordClick(*)
@@ -853,8 +830,8 @@ OnDashboardNewWordClick(*)
 
     try
     {
-        ok := ApiAddDashboardManualTerm(word)
-        if (!ok)
+        addResult := ApiAddDashboardManualTerm(word)
+        if (!addResult["ok"])
             throw Error("save failed")
     }
     catch Error as err
@@ -865,6 +842,36 @@ OnDashboardNewWordClick(*)
 
     LoadDashboardDataFromServer()
     RefreshDashboardDictionaryList()
+    OpenTermSamplesDialog(addResult["term"])
+}
+
+OnDashboardOpenTermSamplesClick(*)
+{
+    global dashboardDictList
+    if (!IsObject(dashboardDictList))
+        return
+
+    row := dashboardDictList.GetNext(0)
+    if (!row)
+    {
+        MsgBox("请先选择一个词条。", "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    term := Trim(dashboardDictList.GetText(row, 1))
+    if (term = "")
+        return
+    OpenTermSamplesDialog(term)
+}
+
+OnDashboardDictRowDoubleClick(ctrl, row)
+{
+    if (!row)
+        return
+    term := Trim(ctrl.GetText(row, 1))
+    if (term = "")
+        return
+    OpenTermSamplesDialog(term)
 }
 
 OnDashboardDeleteSelectedClick(*)
@@ -889,7 +896,7 @@ OnDashboardDeleteSelectedClick(*)
     }
 
     confirm := MsgBox(
-        "确认删除选中的 " . selectedTerms.Length . " 个词吗？`n删除后不会在词典中显示。",
+        "确认删除选中的 " . selectedTerms.Length . " 个词吗？`n删除后词条及样本会一起删除。",
         "Voice Text Organizer",
         "OKCancel Icon!"
     )
@@ -911,43 +918,6 @@ OnDashboardDeleteSelectedClick(*)
     RefreshDashboardDictionaryList()
 }
 
-OnDashboardFilterAllClick(*)
-{
-    SetDashboardFilterMode("all")
-}
-
-OnDashboardFilterAutoClick(*)
-{
-    SetDashboardFilterMode("auto")
-}
-
-OnDashboardFilterManualClick(*)
-{
-    SetDashboardFilterMode("manual")
-}
-
-SetDashboardFilterMode(mode)
-{
-    global dashboardFilterMode, dashboardFilterAll, dashboardFilterAuto, dashboardFilterManual
-    dashboardFilterMode := mode
-
-    if (IsObject(dashboardFilterAll))
-    {
-        dashboardFilterAll.Opt("+BackgroundE8E8EA c3B3B3B")
-        dashboardFilterAuto.Opt("+BackgroundE8E8EA c3B3B3B")
-        dashboardFilterManual.Opt("+BackgroundE8E8EA c3B3B3B")
-
-        if (mode = "all")
-            dashboardFilterAll.Opt("+BackgroundFFFFFF c171717")
-        else if (mode = "auto")
-            dashboardFilterAuto.Opt("+BackgroundFFFFFF c171717")
-        else
-            dashboardFilterManual.Opt("+BackgroundFFFFFF c171717")
-    }
-
-    RefreshDashboardDictionaryList()
-}
-
 OnDashboardSearchChange(*)
 {
     RefreshDashboardDictionaryList()
@@ -955,7 +925,7 @@ OnDashboardSearchChange(*)
 
 RefreshDashboardDictionaryList()
 {
-    global dashboardDictList, dashboardDictSearch, dashboardFilterMode, dashboardWordEntries
+    global dashboardDictList, dashboardDictSearch, dashboardWordEntries
     if (!IsObject(dashboardDictList))
         return
 
@@ -966,49 +936,290 @@ RefreshDashboardDictionaryList()
     dashboardDictList.Delete()
     for _, entry in dashboardWordEntries
     {
-        source := entry["type"]
-        if (dashboardFilterMode != "all" && source != dashboardFilterMode)
-            continue
-
         word := entry["word"]
         if (query != "" && !InStr(StrLower(word), query))
             continue
 
-        sourceLabel := (source = "manual") ? "手动添加" : "自动添加"
-        dashboardDictList.Add("", word, sourceLabel, entry["count"])
+        dashboardDictList.Add("", word, entry["sample_count"], ConvertTermStatusLabel(entry["status"]))
     }
 }
 
-UpsertDictionaryEntry(word, source)
+ConvertTermStatusLabel(status)
 {
-    global dashboardWordEntries
-    word := Trim(word)
-    if (word = "")
-        return
-    if (RegExMatch(word, "^\d+$"))
-        return
-
-    idx := FindDictionaryWordIndex(word)
-    if (idx > 0)
-    {
-        dashboardWordEntries[idx]["count"] := dashboardWordEntries[idx]["count"] + 1
-        if (source = "manual")
-            dashboardWordEntries[idx]["type"] := "manual"
-        return
-    }
-
-    dashboardWordEntries.Push(Map("word", word, "type", source, "count", 1))
+    if (status = "active")
+        return "已生效"
+    return "待录音"
 }
 
-FindDictionaryWordIndex(word)
+EnsureTermSampleGui()
 {
-    global dashboardWordEntries
-    for idx, entry in dashboardWordEntries
+    global termSampleGui, termSampleTermText, termSampleStatusText
+    global termSampleList, termSampleStartBtn, termSampleDeleteBtn, termSamplePlayBtn
+    if (IsObject(termSampleGui))
+        return
+
+    termSampleGui := Gui("+AlwaysOnTop", "词条录音样本")
+    termSampleGui.SetFont("s10", "Microsoft YaHei UI")
+
+    termSampleTermText := termSampleGui.AddText("xm ym w660", "词条: ")
+    termSampleStatusText := termSampleGui.AddText("xm y+6 w660", "状态: 待录音")
+
+    termSampleStartBtn := termSampleGui.AddButton("xm y+12 w110", "开始录音")
+    termSamplePlayBtn := termSampleGui.AddButton("x+10 yp w90", "试听样本")
+    termSampleDeleteBtn := termSampleGui.AddButton("x+10 yp w110", "删除样本")
+    closeBtn := termSampleGui.AddButton("x+10 yp w90", "关闭")
+
+    termSampleList := termSampleGui.AddListView("xm y+12 w660 h280", ["ID", "时长(ms)", "创建时间", "文件路径"])
+    termSampleList.ModifyCol(1, 70)
+    termSampleList.ModifyCol(2, 100)
+    termSampleList.ModifyCol(3, 220)
+    termSampleList.ModifyCol(4, 250)
+
+    termSampleStartBtn.OnEvent("Click", OnTermSampleStartStopClick)
+    termSamplePlayBtn.OnEvent("Click", OnTermSamplePlayClick)
+    termSampleDeleteBtn.OnEvent("Click", OnTermSampleDeleteClick)
+    termSampleList.OnEvent("DoubleClick", OnTermSampleListDoubleClick)
+    closeBtn.OnEvent("Click", HideTermSampleDialog)
+    termSampleGui.OnEvent("Close", HideTermSampleDialog)
+}
+
+OpenTermSamplesDialog(term)
+{
+    global termSampleCurrentTerm, termSampleGui, termSampleTermText
+    global termSampleRecordingSessionId, termSampleRecordingTerm
+    term := Trim(term)
+    if (term = "")
+        return
+    if (termSampleRecordingSessionId != "" && termSampleRecordingTerm != "" && term != termSampleRecordingTerm)
     {
-        if (entry["word"] = word)
-            return idx
+        MsgBox(
+            "当前正在为词条 [" . termSampleRecordingTerm . "] 录音，请先停止后再切换词条。",
+            "Voice Text Organizer",
+            "Icon!"
+        )
+        return
     }
-    return 0
+
+    EnsureTermSampleGui()
+    termSampleCurrentTerm := term
+    termSampleTermText.Value := "词条: " . termSampleCurrentTerm
+    SetTermSampleRecordButton(termSampleRecordingSessionId != "")
+    RefreshTermSamplesDialog()
+    termSampleGui.Show("w700 h420 Center")
+}
+
+HideTermSampleDialog(*)
+{
+    global termSampleGui, termSampleRecordingSessionId
+    if (!IsObject(termSampleGui))
+        return
+    if (termSampleRecordingSessionId != "")
+    {
+        MsgBox("请先停止当前样本录音。", "Voice Text Organizer", "Icon!")
+        return
+    }
+    termSampleGui.Hide()
+}
+
+SetTermSampleRecordButton(isRecording)
+{
+    global termSampleStartBtn
+    if (!IsObject(termSampleStartBtn))
+        return
+    termSampleStartBtn.Text := isRecording ? "停止录音" : "开始录音"
+}
+
+RefreshTermSamplesDialog()
+{
+    global termSampleCurrentTerm, termSampleList, termSampleStatusText, dashboardWordEntries
+    if (!IsObject(termSampleList))
+        return
+
+    try
+    {
+        samplesBlob := ApiGetDashboardTermSamplesBlob(termSampleCurrentTerm)
+        entries := ParseDashboardTermSamplesBlob(samplesBlob)
+        LoadDashboardDataFromServer()
+        RefreshDashboardDictionaryList()
+    }
+    catch Error as err
+    {
+        MsgBox("加载样本失败: " . err.Message, "Voice Text Organizer", "Iconx")
+        return
+    }
+
+    statusLabel := "待录音"
+    sampleCount := entries.Length
+    if (sampleCount > 0)
+        statusLabel := "已生效"
+    for _, entry in dashboardWordEntries
+    {
+        if (entry["word"] = termSampleCurrentTerm)
+        {
+            if (sampleCount <= 0)
+                sampleCount := entry["sample_count"]
+            if (sampleCount <= 0)
+                statusLabel := ConvertTermStatusLabel(entry["status"])
+            break
+        }
+    }
+    termSampleStatusText.Value := "状态: " . statusLabel . " | 样本数: " . sampleCount
+
+    termSampleList.Delete()
+    for _, entry in entries
+    {
+        termSampleList.Add("", entry["sample_id"], entry["duration_ms"], entry["created_at"], entry["sample_path"])
+    }
+}
+
+OnTermSampleStartStopClick(*)
+{
+    global termSampleRecordingSessionId, termSampleBusy
+    if (termSampleBusy)
+        return
+    termSampleBusy := true
+    try
+    {
+    if (termSampleRecordingSessionId = "")
+        StartTermSampleRecording()
+    else
+        StopTermSampleRecording()
+    }
+    finally
+    {
+        termSampleBusy := false
+    }
+}
+
+StartTermSampleRecording()
+{
+    global termSampleCurrentTerm, termSampleRecordingSessionId, termSampleRecordingTerm
+    if (termSampleCurrentTerm = "")
+        return
+    if (HasActiveRecording())
+    {
+        MsgBox("请先结束主录音会话。", "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    try
+    {
+        PausePlaybackForRecording()
+        sessionId := ApiStartDashboardTermSample(termSampleCurrentTerm)
+        if (sessionId = "")
+            throw Error("empty session id")
+        termSampleRecordingSessionId := sessionId
+        termSampleRecordingTerm := termSampleCurrentTerm
+        ShowWaveformIndicator()
+        SetTermSampleRecordButton(true)
+    }
+    catch Error as err
+    {
+        ResumePlaybackAfterRecording()
+        HideWaveformIndicator()
+        termSampleRecordingSessionId := ""
+        termSampleRecordingTerm := ""
+        MsgBox("开始录音失败: " . FormatTermSampleErrorMessage("start", err.Message), "Voice Text Organizer", "Iconx")
+    }
+}
+
+StopTermSampleRecording()
+{
+    global termSampleCurrentTerm, termSampleRecordingSessionId, termSampleRecordingTerm
+    if (termSampleRecordingSessionId = "")
+        return
+
+    recordingTerm := termSampleRecordingTerm != "" ? termSampleRecordingTerm : termSampleCurrentTerm
+    try
+    {
+        result := ApiStopDashboardTermSample(recordingTerm, termSampleRecordingSessionId)
+        MsgBox(
+            "录音样本已保存。`n样本数: " . result["sample_count"] . "`n状态: " . ConvertTermStatusLabel(result["status"]),
+            "Voice Text Organizer",
+            "Iconi"
+        )
+        termSampleCurrentTerm := recordingTerm
+        termSampleRecordingSessionId := ""
+        termSampleRecordingTerm := ""
+        RefreshTermSamplesDialog()
+    }
+    catch Error as err
+    {
+        MsgBox("停止录音失败: " . FormatTermSampleErrorMessage("stop", err.Message), "Voice Text Organizer", "Iconx")
+    }
+    finally
+    {
+        ResumePlaybackAfterRecording()
+        HideWaveformIndicator()
+        SetTermSampleRecordButton(false)
+        termSampleRecordingSessionId := ""
+        termSampleRecordingTerm := ""
+    }
+}
+
+OnTermSampleDeleteClick(*)
+{
+    global termSampleList, termSampleCurrentTerm
+    if (!IsObject(termSampleList))
+        return
+    row := termSampleList.GetNext(0)
+    if (!row)
+    {
+        MsgBox("请先选择要删除的样本。", "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    sampleId := 0
+    try
+        sampleId := Integer(termSampleList.GetText(row, 1))
+    catch
+        sampleId := 0
+    if (sampleId <= 0)
+        return
+
+    try
+    {
+        ApiDeleteDashboardTermSample(termSampleCurrentTerm, sampleId)
+    }
+    catch Error as err
+    {
+        MsgBox("删除样本失败: " . err.Message, "Voice Text Organizer", "Iconx")
+        return
+    }
+
+    RefreshTermSamplesDialog()
+}
+
+OnTermSamplePlayClick(*)
+{
+    global termSampleList
+    if (!IsObject(termSampleList))
+        return
+    row := termSampleList.GetNext(0)
+    if (!row)
+    {
+        MsgBox("请先选择要试听的样本。", "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    samplePath := Trim(termSampleList.GetText(row, 4))
+    if (samplePath = "")
+        return
+    if !FileExist(samplePath)
+    {
+        MsgBox("样本文件不存在: " . samplePath, "Voice Text Organizer", "Icon!")
+        return
+    }
+
+    try
+        SoundPlay(samplePath)
+    catch Error as err
+        MsgBox("播放失败: " . err.Message, "Voice Text Organizer", "Iconx")
+}
+
+OnTermSampleListDoubleClick(*)
+{
+    OnTermSamplePlayClick()
 }
 
 GetSelectedTextSafe()
@@ -1155,10 +1366,11 @@ ApiGetAppVersion()
     return result
 }
 
-ApiUpdateSettings(apiKey, mode)
+ApiUpdateSettings(apiKey, mode, personalizedEnabled)
 {
     q := Chr(34)
     payload := "{" . q . "default_mode" . q . ":" . q . JsonEscape(mode) . q
+    payload .= "," . q . "personalized_acoustic_enabled" . q . ":" . (personalizedEnabled ? "true" : "false")
     if (apiKey != "")
         payload .= "," . q . "api_key" . q . ":" . q . JsonEscape(apiKey) . q
     payload .= "}"
@@ -1172,6 +1384,7 @@ ParseSettingsResponse(response)
     result["default_mode"] := ExtractJsonString(response, "default_mode")
     result["api_key_masked"] := ExtractJsonString(response, "api_key_masked")
     result["api_key_configured"] := ExtractJsonBool(response, "api_key_configured")
+    result["personalized_acoustic_enabled"] := ExtractJsonBool(response, "personalized_acoustic_enabled")
     return result
 }
 
@@ -1189,7 +1402,7 @@ ApiGetDashboardSummary()
 
 ApiGetDashboardTermsBlob()
 {
-    response := HttpGet("/v1/dashboard/terms/export?filter_mode=all&min_auto_count=3&limit=600")
+    response := HttpGet("/v1/dashboard/terms/export?status=all&limit=600")
     return ExtractJsonString(response, "terms_blob")
 }
 
@@ -1198,7 +1411,13 @@ ApiAddDashboardManualTerm(term)
     q := Chr(34)
     payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q . "}"
     response := HttpPost("/v1/dashboard/terms/manual", payload)
-    return ExtractJsonBool(response, "ok")
+    result := Map()
+    result["ok"] := ExtractJsonBool(response, "ok")
+    result["term"] := ExtractJsonString(response, "term")
+    result["existed"] := ExtractJsonBool(response, "existed")
+    result["sample_count"] := ExtractJsonInt(response, "sample_count")
+    result["status"] := ExtractJsonString(response, "status")
+    return result
 }
 
 ApiDeleteDashboardTerm(term)
@@ -1226,16 +1445,136 @@ ParseDashboardTermsBlob(blob)
         if (parts.Length < 3)
             continue
 
-        count := 1
+        sampleCount := 0
         try
-            count := Integer(parts[3])
+            sampleCount := Integer(parts[2])
         catch
-            count := 1
+            sampleCount := 0
 
         entry := Map()
         entry["word"] := parts[1]
-        entry["type"] := parts[2]
-        entry["count"] := count
+        entry["sample_count"] := sampleCount
+        entry["status"] := parts[3]
+        entries.Push(entry)
+    }
+    return entries
+}
+
+ApiStartDashboardTermSample(term)
+{
+    q := Chr(34)
+    payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q . "}"
+    try
+    {
+        response := HttpPost("/v1/dashboard/terms/sample/start", payload)
+    }
+    catch Error as err
+    {
+        if (IsEndpointNotFoundError(err.Message) && ForceRestartBackendForApiUpgrade())
+            response := HttpPost("/v1/dashboard/terms/sample/start", payload)
+        else
+            throw err
+    }
+    return ExtractJsonString(response, "session_id")
+}
+
+ApiStopDashboardTermSample(term, sessionId)
+{
+    q := Chr(34)
+    payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q
+    payload .= "," . q . "session_id" . q . ":" . q . JsonEscape(sessionId) . q . "}"
+    try
+    {
+        response := HttpPost("/v1/dashboard/terms/sample/stop", payload)
+    }
+    catch Error as err
+    {
+        if (IsEndpointNotFoundError(err.Message) && ForceRestartBackendForApiUpgrade())
+            response := HttpPost("/v1/dashboard/terms/sample/stop", payload)
+        else
+            throw err
+    }
+
+    result := Map()
+    result["ok"] := ExtractJsonBool(response, "ok")
+    result["sample_id"] := ExtractJsonInt(response, "sample_id")
+    result["sample_count"] := ExtractJsonInt(response, "sample_count")
+    result["status"] := ExtractJsonString(response, "status")
+    result["duration_ms"] := ExtractJsonInt(response, "duration_ms")
+    result["quality_score"] := ExtractJsonNumber(response, "quality_score")
+    result["sample_path"] := ExtractJsonString(response, "sample_path")
+    return result
+}
+
+ApiGetDashboardTermSamplesBlob(term)
+{
+    q := Chr(34)
+    payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q . "}"
+    try
+    {
+        response := HttpPost("/v1/dashboard/terms/samples/export", payload)
+    }
+    catch Error as err
+    {
+        if (InStr(err.Message, "HTTP 405") || InStr(err.Message, "HTTP 404"))
+        {
+            endpoint := "/v1/dashboard/terms/samples/export?term=" . UrlEncode(term)
+            response := HttpGet(endpoint)
+        }
+        else
+        {
+            throw err
+        }
+    }
+    return ExtractJsonString(response, "samples_blob")
+}
+
+ApiDeleteDashboardTermSample(term, sampleId)
+{
+    q := Chr(34)
+    payload := "{" . q . "term" . q . ":" . q . JsonEscape(term) . q
+    payload .= "," . q . "sample_id" . q . ":" . sampleId . "}"
+    response := HttpPost("/v1/dashboard/terms/sample/delete", payload)
+    result := Map()
+    result["ok"] := ExtractJsonBool(response, "ok")
+    result["sample_count"] := ExtractJsonInt(response, "sample_count")
+    result["status"] := ExtractJsonString(response, "status")
+    return result
+}
+
+ParseDashboardTermSamplesBlob(blob)
+{
+    entries := []
+    if (blob = "")
+        return entries
+
+    lines := StrSplit(blob, "`n", "`r")
+    for _, line in lines
+    {
+        trimmed := Trim(line)
+        if (trimmed = "")
+            continue
+
+        parts := StrSplit(trimmed, "`t")
+        if (parts.Length < 4)
+            continue
+
+        sampleId := 0
+        durationMs := 0
+        try
+            sampleId := Integer(parts[1])
+        catch
+            sampleId := 0
+        try
+            durationMs := Integer(parts[2])
+        catch
+            durationMs := 0
+
+        entry := Map()
+        entry["sample_id"] := sampleId
+        entry["duration_ms"] := durationMs
+        entry["created_at"] := parts[3]
+        entry["sample_path"] := parts[4]
         entries.Push(entry)
     }
     return entries
@@ -1292,11 +1631,26 @@ IsHttpTimeoutError(message)
     return InStr(text, "12002")
         || InStr(text, "timeout")
         || InStr(text, "timed out")
-        || InStr(text, "超时")
+        || InStr(text, "瓒呮椂")
+}
+
+IsEndpointNotFoundError(message)
+{
+    text := StrLower(message)
+    return InStr(text, "http 404") && InStr(text, "not found")
 }
 
 TryStartBackend()
 {
+    serviceScript := A_ScriptDir . "\..\scripts\run-service.ps1"
+    if FileExist(serviceScript)
+    {
+        quoted := Chr(34) . serviceScript . Chr(34)
+        LogLine("starting backend via " . serviceScript)
+        Run("powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File " . quoted,, "Hide")
+        return WaitBackendReady(15000)
+    }
+
     serviceExe := A_ScriptDir . "\TypelessService.exe"
     if FileExist(serviceExe)
     {
@@ -1306,17 +1660,27 @@ TryStartBackend()
         return WaitBackendReady(15000)
     }
 
-    serviceScript := A_ScriptDir . "\..\scripts\run-service.ps1"
     if !FileExist(serviceScript)
     {
         LogLine("backend start skipped: missing service exe and script (" . serviceScript . ")")
         return false
     }
+}
 
-    quoted := Chr(34) . serviceScript . Chr(34)
-    LogLine("starting backend via " . serviceScript)
-    Run("powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File " . quoted,, "Hide")
-    return WaitBackendReady(15000)
+ForceRestartBackendForApiUpgrade()
+{
+    global baseUrl
+    LogLine("backend api mismatch detected, forcing restart")
+    try
+    {
+        killCmd := "$conn = Get-NetTCPConnection -LocalPort 8775 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($conn){ Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }"
+        RunWait("powershell -NoProfile -ExecutionPolicy Bypass -Command " . Chr(34) . killCmd . Chr(34),, "Hide")
+    }
+    catch Error as err
+    {
+        LogLine("force restart kill step failed: " . err.Message)
+    }
+    return TryStartBackend()
 }
 
 WaitBackendReady(timeoutMs := 6000)
@@ -1415,12 +1779,66 @@ ExtractJsonInt(json, key)
         return 0
 }
 
+ExtractJsonNumber(json, key)
+{
+    q := Chr(34)
+    pattern := q . key . q . "\s*:\s*(-?\d+(?:\.\d+)?)"
+    if !RegExMatch(json, pattern, &m)
+        return 0.0
+    try
+        return Number(m[1])
+    catch
+        return 0.0
+}
+
 JsonEscape(text)
 {
     text := StrReplace(text, Chr(92), "\\")
     text := StrReplace(text, Chr(34), Chr(92) . Chr(34))
     text := StrReplace(text, "`r", "")
     text := StrReplace(text, "`n", "\n")
+    return text
+}
+
+UrlEncode(text)
+{
+    utf8Size := StrPut(text, "UTF-8")
+    buf := Buffer(utf8Size, 0)
+    StrPut(text, buf, "UTF-8")
+    encoded := ""
+
+    Loop (utf8Size - 1)
+    {
+        b := NumGet(buf, A_Index - 1, "UChar")
+        isAlphaNum := (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A)
+        isUnreserved := isAlphaNum || b = 0x2D || b = 0x5F || b = 0x2E || b = 0x7E
+        if (isUnreserved)
+            encoded .= Chr(b)
+        else
+            encoded .= "%" . Format("{:02X}", b)
+    }
+    return encoded
+}
+
+FormatTermSampleErrorMessage(action, message)
+{
+    text := Trim(message)
+    if (InStr(text, "sample volume too low"))
+        return "音量太小，请靠近麦克风并提高音量后重试。"
+    if (InStr(text, "too much silence in sample"))
+        return "录音中静音过多，请在说完词条后再点击停止。"
+    if (InStr(text, "sample duration must be > 0.3s"))
+        return "录音时间太短，请至少说 0.3 秒。"
+    if (InStr(text, "sample duration must be <= 15s"))
+        return "录音时间过长，请控制在 15 秒以内。"
+    if (InStr(text, "sample clipping is too high"))
+        return "录音过爆，请稍微远离麦克风后重试。"
+    if (InStr(text, "sample recording session not found") || InStr(text, "recording session not found"))
+        return "录音会话已失效，请重新开始录音。"
+    if (InStr(text, "term does not match recording session"))
+        return "当前词条与录音会话不一致，请重新打开该词条后录音。"
+    if (InStr(text, "HTTP 404") && InStr(text, "Not Found"))
+        return action = "start" ? "后端接口未就绪，请稍后重试。" : "停止接口未就绪，请先重新开始一条样本录音。"
     return text
 }
 
@@ -1435,3 +1853,4 @@ NormalizeOutputText(text)
     text := StrReplace(text, "\r", "`n")
     return text
 }
+

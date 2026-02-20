@@ -269,3 +269,64 @@ def test_record_stop_honors_explicit_language_hint(client, monkeypatch) -> None:
     )
     assert stop.status_code == 200
     assert observed["language_hint"] == "en"
+
+def test_record_stop_applies_personalized_acoustic_when_enabled(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "voice_text_organizer.main.transcribe_audio",
+        lambda _path, language_hint="auto": "type less release",
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.settings.personalized_acoustic_enabled", True, raising=False)
+    monkeypatch.setattr(
+        "voice_text_organizer.main._apply_personalized_acoustic",
+        lambda voice_text, audio_path: "Typeless release",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "voice_text_organizer.main._resolve_final_text",
+        lambda **kwargs: kwargs["voice_text"],
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+
+    start = client.post("/v1/record/start", json={})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
+    assert stop.status_code == 200
+    assert stop.json()["voice_text"] == "Typeless release"
+
+
+def test_record_stop_skips_personalized_acoustic_when_disabled(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "voice_text_organizer.main.transcribe_audio",
+        lambda _path, language_hint="auto": "type less release",
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.recorder.start", lambda _session_id: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.recorder.stop", lambda _session_id: Path("dummy.wav"), raising=False)
+    monkeypatch.setattr("voice_text_organizer.main._safe_unlink", lambda _path: None, raising=False)
+    monkeypatch.setattr("voice_text_organizer.main.settings.personalized_acoustic_enabled", False, raising=False)
+    monkeypatch.setattr(
+        "voice_text_organizer.main._apply_personalized_acoustic",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not be called")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "voice_text_organizer.main._resolve_final_text",
+        lambda **kwargs: kwargs["voice_text"],
+        raising=False,
+    )
+    monkeypatch.setattr("voice_text_organizer.main.history_store.record_transcript", lambda **_kwargs: None, raising=False)
+
+    start = client.post("/v1/record/start", json={})
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    stop = client.post("/v1/record/stop", json={"session_id": session_id, "mode": "cloud"})
+    assert stop.status_code == 200
+    assert stop.json()["voice_text"] == "type less release"

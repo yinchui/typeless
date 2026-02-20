@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Literal
 
@@ -54,6 +54,10 @@ class DashboardTermAddRequest(BaseModel):
 
 class DashboardTermAddResponse(BaseModel):
     ok: bool = True
+    term: str
+    existed: bool = False
+    sample_count: int = 0
+    status: Literal["pending", "active"] = "pending"
 
 
 class DashboardTermDeleteRequest(BaseModel):
@@ -65,10 +69,53 @@ class DashboardTermDeleteResponse(BaseModel):
     deleted: bool = False
 
 
+class DashboardTermSampleStartRequest(BaseModel):
+    term: str
+
+
+class DashboardTermSampleStartResponse(BaseModel):
+    session_id: str
+
+
+class DashboardTermSampleStopRequest(BaseModel):
+    term: str
+    session_id: str
+
+
+class DashboardTermSampleStopResponse(BaseModel):
+    ok: bool = True
+    sample_id: int
+    sample_count: int
+    status: Literal["pending", "active"]
+    duration_ms: int
+    quality_score: float
+    sample_path: str
+
+
+class DashboardTermSamplesExportResponse(BaseModel):
+    samples_blob: str
+
+
+class DashboardTermSamplesExportRequest(BaseModel):
+    term: str
+
+
+class DashboardTermSampleDeleteRequest(BaseModel):
+    term: str
+    sample_id: int
+
+
+class DashboardTermSampleDeleteResponse(BaseModel):
+    ok: bool = True
+    sample_count: int
+    status: Literal["pending", "active"]
+
+
 class SettingsViewResponse(BaseModel):
     default_mode: Literal["cloud", "local"]
     update_channel: Literal["stable", "beta"] = "stable"
     auto_template_confidence_threshold: float
+    personalized_acoustic_enabled: bool
     api_key_configured: bool
     api_key_masked: str | None = None
 
@@ -77,6 +124,7 @@ class SettingsUpdateRequest(BaseModel):
     default_mode: Literal["cloud", "local"] | None = None
     update_channel: Literal["stable", "beta"] | None = None
     auto_template_confidence_threshold: float | None = None
+    personalized_acoustic_enabled: bool | None = None
     api_key: str | None = None
 
 

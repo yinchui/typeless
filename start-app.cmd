@@ -81,11 +81,9 @@ for /f "tokens=1-3 delims=|" %%A in ("%PORT_OWNER%") do (
     set "PORT_OWNER_PATH=%%~C"
 )
 
-if /i "%PORT_OWNER_NAME%"=="TypelessService.exe" (
-    echo [INFO] Stopping existing Typeless backend on port 8775: %PORT_OWNER_PATH%
-    taskkill /PID %PORT_OWNER_PID% /F >nul 2>nul
-    timeout /t 1 /nobreak >nul
-)
+echo [INFO] Stopping existing process on port 8775: %PORT_OWNER_NAME% (%PORT_OWNER_PATH%)
+taskkill /PID %PORT_OWNER_PID% /F >nul 2>nul
+timeout /t 1 /nobreak >nul
 exit /b 0
 
 :probe_health

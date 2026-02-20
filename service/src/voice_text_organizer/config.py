@@ -10,6 +10,7 @@ class Settings(BaseModel):
     default_mode: Literal["cloud", "local"] = "cloud"
     update_channel: Literal["stable", "beta"] = "stable"
     auto_template_confidence_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
+    personalized_acoustic_enabled: bool = True
     fallback_to_local_on_cloud_error: bool = True
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1/chat/completions"
     siliconflow_model: str = "deepseek-ai/DeepSeek-V3"
